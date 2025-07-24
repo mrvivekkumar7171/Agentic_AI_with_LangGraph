@@ -291,4 +291,10 @@ Execution stops when:
 - No nodes are active, and
 - No messages are in transit
 
-#
+## Sequential Workflows
+
+## Parallel Workflows
+
+## Conditional Workflows
+
+## Iterative Workflows
