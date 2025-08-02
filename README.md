@@ -1,6 +1,130 @@
+# **Features of Agentic AI Chatbots**
+
+##### 1. **Autonomy**
+
+* **Goal-driven behavior**: Can independently set subgoals and execute tasks toward a main objective.
+* **Initiative taking**: Acts without waiting for user prompts (e.g., offering to do something based on context).
+* **Long-term memory**: Remembers user preferences, goals, or past interactions to adjust future behavior.
+* **Session continuity**: Maintains context across sessions and resumes where left off.
+
+##### 2. **Reasoning & Planning (Cognitive Capabilities)**
+
+* **Multi-step task planning**: Breaks down complex tasks into logical sequences.
+* **Chain-of-thought reasoning or Logical chaining**: Explains steps in its decision-making.
+* **Constraint handling**: Considers limitations, deadlines, and conflicting objectives.
+
+##### 3. **Adaptability & Continuous Learning**
+
+* **On-the-fly learning**: Learns from new data or user feedback during interaction.
+* **Personalization**: Customizes responses based on user personality, tone, and goals.
+* **Behavioral adjustment or feedback loop**: Adapts strategy based on success/failure of previous actions.
+* **Retraining from Logs or Feedback**: Can fine-tune on domain-specific logs (e.g., support chats, tickets, resolutions), Incorporates user corrections into behavior.
+* **Self-improvement Objectives**: Monitors KPIs (e.g., success rate, time to solve) and adjusts strategies to improve.
+* **Plugin / Tool Performance Scoring**: Tracks which plugins/tools work best in different contexts and prioritizes them.
+
+##### 4. **Advanced Natural Language Processing**
+
+* **Contextual understanding or Multi-turn dialogue**: Tracks and interprets ongoing conversation with awareness of history.
+* **Multi-modal input**: Understands text, voice, image, and file inputs.
+* **Multi-language support**: Communicates fluently in multiple languages.
+* **Sentiment and intent detection**: Understands user mood and purpose.
+
+##### 5. **Multi-turn Dialogue Handling**
+
+* **Back-and-forth flow**: Handles long, complex conversations without losing track.
+* **Clarification prompts**: Asks questions to resolve ambiguity.
+* **Interrupt and resume**: Can handle interruptions gracefully and return to previous tasks.
+
+##### 6. **Autonomous Task Execution using Tool & Integration**
+
+* **Tool calling**: Can use external tools/APIs like search engines, calculators, databases, etc.
+* **App/plugin integrations**: Interfaces with calendars, CRMs, emails, etc.
+* **Multi-agent collaboration**: Coordinates with other AI agents or humans for complex workflows.
+
+##### 7. **Environment Interaction**
+
+* **Web browsing**: Searches and extracts relevant, up-to-date info.
+* **File handling**: Reads/writes documents, code, spreadsheets.
+* **Real-world API actions**: Sends emails, schedules meetings, creates tickets, triggers workflows.
+
+##### 8. **Control & Alignment & Ethics & Governance & Security & Compliance**
+
+* **Value alignment**: Ensures behavior aligns with user values and ethical norms.
+* **Safety constraints or Data privacy**: Obeys guardrails like do-not-do rules or data privacy laws.
+* **Explainability**: Can explain why it took a particular action.
+* **User approval gating**: Seeks permission before executing sensitive tasks.
+* **Escalation to Human Agents / Human-in-the-Loop / Hybrid Control**: Seamlessly hands off to a human when the task is too ambiguous, risky, or sensitive, Includes full context transfer to the human counterpart.
+* **Approval-based Actions**: Certain actions (e.g., sending payment, deleting data) require explicit human approval.
+* **Role-based Access Control (RBAC)**: User-specific permissions for executing sensitive or destructive tasks, Fine-grained control over tool access (e.g., only admins can call `delete_user`).
+* **Audit Logging**: Logs all actions taken by the agent: what, why, when, who initiated, Helps with compliance (e.g., GDPR, HIPAA, SOC2).
+* **Prompt Injection & Jailbreak Detection**: Real-time detection and mitigation of malicious inputs or prompt tampering, Input sanitization and containment strategies.
+* **Secure Tool Execution**: Runs shell commands, code, or tools in sandboxes or containers (e.g., Docker, Firecracker), Prevents code execution from escaping the controlled environment.
+
+##### 9. **Agentic Architecture & Infrastructure Support**
+
+* **Memory modules**: Separate short-term and long-term memory systems.
+* **Planning modules**: Components responsible for action sequencing and prioritization.
+* **Critique/self-reflection modules or long-term adaptation**: Evaluates its own performance and revises plans.
+* **High Availability & Fault Tolerance**: Distributed deployment to ensure no single point of failure, Auto-recovery from crashes or broken task chains, Retry mechanisms for failed steps or external API timeouts.
+* **Scalability**: Supports dynamic workload scaling (horizontal/vertical), Multi-user and multi-agent orchestration without latency spikes.
+* **Task Persistence & Resumability**: Can pause and resume long-running tasks (e.g., across sessions or after server restart), Tracks task state in a persistent store (e.g., Redis, vector DB, etc.).
+
+##### 10. **Multi-agent Systems**
+
+* **Task delegation**: Assigns subtasks to specialized agents.
+* **Collaboration protocols**: Communicates and negotiates between agents.
+* **Shared memory/context**: Maintains a common knowledge base across agents.
+* **Multi-agent Task Arbitration**: Agents can negotiate or vote on decisions, Conflict resolution protocols (e.g., consensus, majority, rule-based overrides).
+
+##### 11. **Operations & Lifecycle Management**
+
+* **Versioning & Rollbacks**: Tracks versions of agents, tools, prompts, and plans, Can revert to previous configurations or workflows if issues arise.
+* **Dynamic Agent Configuration**: Allows real-time agent behavior tuning (e.g., temperature, planning depth, etc.) via UI or API, Agents can be upgraded, disabled, or redirected on the fly.
+* **Hot-Swapping Skills/Tools**: Dynamically load/unload plugins/tools/APIs, Auto-discover or fetch new capabilities from registries or repositories.
+
+##### 12. **Agent Collaboration & Governance**
+
+* **Agent Hierarchies and Delegation Policies**: Agents can spawn or command sub-agents with scoped permissions, Parent-child agent task hierarchies for traceability and control.
+* **Agent Registry and Metadata**: Central registry of available agents with descriptions, capabilities, and usage metrics.
+
+##### 13. **Observability & Debugging**
+* **Task Traceability / Visual Logs**: Full, step-by-step visual trace of agent thinking and actions, Allows debugging task failures or incorrect reasoning chains.
+* **Health Monitoring & Alerts**: Real-time status of agent, tools, and memory systems, Auto-alerts on degraded performance or failures.
+* **Feedback Loops**: User thumbs-up/down or comments directly impact agent scoring or future planning.
+
+##### 14. **Domain Adaptation & Knowledge Management**
+* **Enterprise Knowledge Graphs / Ontologies**: Integrates with structured data systems (e.g., product catalogs, internal wikis), Links concepts intelligently for richer reasoning.
+* **Vector Store-Backed Memory**: Stores long-term memory, embeddings, and documents in semantic vector databases (e.g., Pinecone, Weaviate), Enables retrieval-augmented generation (RAG) across domain-specific knowledge.
+
+| Domain & Industry  | Example Use Case                                                               |
+| ------------------ | ------------------------------------------------------------------------------ |
+| Personal Assistant | Proactively scheduling your week based on past habits and upcoming goals       |
+| Customer Service   | Troubleshooting, escalating, and resolving issues across channels autonomously |
+| Development Agent  | Writing, testing, debugging, and documenting code automatically                |
+| Research Assistant | Gathering data, summarizing papers, generating insights with minimal guidance  |
+| Operations Agent   | Monitoring dashboards, automating responses, adjusting parameters dynamically  |
+| Finance            | RBAC, audit logs, human approval for transactions                              |
+| Healthcare         | HIPAA compliance, secure memory, human escalation for diagnoses                |
+| Customer Support   | Auto-escalation, hot-swapping tools, retraining from logs                      |
+| DevOps             | Shell sandboxing, retries, rollback systems                                    |
+| E-commerce         | Knowledge graph for products, scalable memory, RAG with order history          |
+
+##### Basic Chatbot Features
+* **Quick Replies / Buttons** UI shortcuts to guide conversation.
+* **Fallback Handling**       Gracefully manages unknown inputs ("Sorry, I didn’t understand").
+* **FAQs Handling**           Responds instantly to predefined frequent questions.
+* **Multichannel Support**    Works across web, WhatsApp, Messenger, etc.
+* **Typing Indicators**       Shows bot is "typing" for realism.
+* **Conversation Handoff**    Transfers to human when needed.
+* **User Session Timeout**    Ends or resets inactive chats cleanly.
+* **Language Detection**      Auto-detects and switches language if needed.
+* **Small Talk**              Handles greetings, jokes, chit-chat.
+* **Anonymity Option**        Can chat without needing personal data.
+
 # Agentic AI using LangGraph
 
 NOTE: We can use any other framework to make the Agentic AI, however, we are using LangChain.
+
 
 ## Curriculum: 
 1. Foundation of Agentic AI
