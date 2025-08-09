@@ -1,7 +1,8 @@
 from langchain_core.messages import HumanMessage
-from chatbot_backend import chatbot
+from chatbot_backend import chatbot, retrieve_all_threads
 import streamlit as st
 import uuid
+
 
 # **************************************** utility functions *************************
 
@@ -32,6 +33,7 @@ def add_thread(thread_id):
 def load_conversation(thread_id):
     return chatbot.get_state(config={'configurable': {'thread_id': thread_id}}).values['messages']
 
+
 # **************************************** Session Setup ******************************
 
 # Session State is a type of dictionary helps to preserve the data until the whole page is reload.
@@ -43,9 +45,9 @@ if 'message_history' not in st.session_state:
 if 'thread_id' not in st.session_state:
     st.session_state['thread_id'] = generate_thread_id()
 
-# Initialize chat threads in session state if not already present
+# Initialize chat threads that already exist in session state
 if 'chat_threads' not in st.session_state:
-    st.session_state['chat_threads'] = []
+    st.session_state['chat_threads'] = retrieve_all_threads() # list of thread ids that already exist in the database
 
 # Add the current thread id to the chat threads list on page load
 add_thread(st.session_state['thread_id'])
