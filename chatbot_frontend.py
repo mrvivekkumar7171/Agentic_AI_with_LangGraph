@@ -1,3 +1,4 @@
+# streamlit run .\chatbot_frontend.py
 from langchain_core.messages import HumanMessage
 from chatbot_backend import chatbot, retrieve_all_threads
 import streamlit as st
@@ -101,7 +102,14 @@ if user_input:
         st.text(user_input)
 
     # To identify the user, whose conversation is stored in the memory.
-    CONFIG = {'configurable': {'thread_id': st.session_state['thread_id']}}
+    # CONFIG = {'configurable': {'thread_id': st.session_state['thread_id']}}
+    CONFIG = {
+        "configurable": {"thread_id": st.session_state["thread_id"]},
+        "metadata": {
+            "thread_id": st.session_state["thread_id"]
+        },
+        "run_name": "chat_turn",
+    }
 
     # first add the message to message_history
     with st.chat_message('assistant'):
