@@ -141,7 +141,8 @@ NOTE: We can use any other framework to make the Agentic AI, however, we are usi
 ### Agentic AI aims at solving a problem using generative AI and take approval/review from the client before taking action. It is proactive (autonomous i.e. can initiate action itself), has memory to remember past, give specific ouput/data, take take action and can adopt to any unseen changes. Example: we can integrate API of services and Agentic AI can use the API to perform the specified task end to end.
 
 # What is Agentic AI?
-Agentic Al is a type of Al that can take up a task or goal from a user and then work toward completing it on its own, with minimal human guidance. It plans, takes action, adapts to changes, and seeks help only when necessary.
+Agentic Al is a type of Al that can take up a task or goal from a user and then work toward completing it on its own, with minimal human guidance. It plans, takes action, adapts to changes, and seeks help only when necessary. It is an intelligent system that receives a high-level goal from a user, and autonomously plans, decides, and executes a sequence of actions by using external tools, APIs, or knowledge sources — all while maintaining context, reasoning over multiple steps, adapting to new information, and optimizing for the intended outcome.
+![AI Agents](/img/image-9.png)
 
 ## Key characterstics of Agentic AI
 ###  Autonomous
@@ -297,6 +298,316 @@ example: API
 **Guardrails Enforcement** : Blocks unsafe or non-compliant behavior.
 **Edge Case Escalation** : Alerts humans when uncertainty/conflict arises.
 
+## Tools:
+A tool is just a Python function (or API) that is packaged in a way the LLM can understand and call when needed. NOTE: These tools are also runnables. Documentation and list of all available tools https://python.langchain.com/docs/integrations/tools/.
+LLMS (like GPT) are great at:
+    • Reasoning(Think)
+    • Language generation(Text Generation or Speak)
+But they can't do things like:
+    • Access live data (weather, news)
+    • Do reliable math(difficult mathematics)
+    • Call APIs(post a tweet on tweeter)
+    • Run code
+    • Interact with a database
+![Types of Tools](/img/image-6.png)
+
+### How Tools fits into the Agent ecosystem?
+An Al agent is an LLM-powered system that can autonomously think, decide, and take actions using external tools or APIs to achieve a goal.
+![Agent=LLM+Tools](/img/image-7.png)
+
+**Built-in Tools**: A built-in tool is a tool that LangChain already provides for you -it's pre-built, production- ready, and requires minimal or no setup. You don't have to write the function logic yourself - you just import and use it.
+    DuckDuckGoSearchRun     Web search via DuckDuckGo
+    WikipediaQueryRun       Wikipedia summary
+    PythonREPLTool          Run raw Python code
+    ShellTool               Run shell commands
+    RequestsGetTool         Make HTTP GET requests
+    GmailSendMessageTool    Send emails via Gmail
+    SlackSendMessageTool    Post message to Slack
+    SQLDatabaseQueryTool    Run SQL queries
+
+**Custom Tools**
+A custom tool is a tool that you define yourself.
+Use them when:
+    • You want to call your own APIs
+    • You want to encapsulate business logic
+    • You want the LLM to interact with your database, product, or app
+
+Ways to create Custom Tools
+    • using @tool decorator
+    • using Structured Tool & Pydantic
+    • Using Base Tool class
+![Ways to create tools](/img/image-8.png)
+
+A **Structured Tool** in LangChain is a special type of tool where the input to the tool follows a structured schema, typically defined using a Pydantic model. The best way to make enforce constants and most used in production.
+
+**BaseTool** is the abstract base class for all tools in LangChain. It defines the core structure and interface that any tool must follow, whether it's a simple one-liner or a fully customized function.
+All other tool types like **@tool, Structured Tool** are built on top of BaseTool. Used to perform multiple asynchronous functions unlike in tool decorator and Structured Tool.
+
+
+**Toolkits**: A toolkit is just a collection (bundle) of related tools that serve a common purpose- packaged together for convenience and `reusability`.
+In LangChain:
+    • A toolkit might be: GoogleDriveToolKit
+    • And it can contain the following tools
+    • `GoogleDriveCreateFileTool`: Upload a file
+    • `GoogleDriveSearchTool`: Search for a file by name/content
+    • `GoogleDriveReadFileTool`: Read contents of a file
+
+**Tool Binding** is the step where you register tools with a Language Model (LLM) so that:
+1. The LLM knows what tools are available
+2. It knows what each tool does (via description)
+3. It knows what input format to use (via schema)
+
+## Tool Calling:
+It is the process where the LLM (language model) decides, during a conversation or task, that it needs to `use a specific tool (function)` — and generates a structured output with:
+- the `name of the tool`
+- and the `arguments` to call it with
+
+The LLM `does not actually run the tool` - it just `suggests` the tool and the input arguments. The `actual execution is handled by LangChain or you`.
+
+"What's 8 multiplied by 7?"
+The LLM responds with a tool call:
+
+```json
+{
+"tool": "multiply",
+"args": { "a": 8, "b": 7 }
+}
+```
+
+**Tool Execution** is the step where the **actual Python function (tool)** is run using the input arguments that the **LLM suggested during tool calling**.
+
+In simpler words:
+    The LLM says:
+    "Hey, call the `multiply` tool with a=8 and b=7,"
+    Tool Execution is when you or LangChain actually run:
+    `multiply(a=8, b=7)`
+    → and get the result: `56`
+
+## **ReAct** : 
+ReAct is a design pattern used in AI agents that stands for Reasoning + Acting. It allows a language model (LLM) to interleave internal reasoning (Thought) with external actions (like tool use) in a structured, multi-step process.
+Instead of generating an answer in one go, the model thinks step by step, deciding what it needs to do next and optionally calling tools (APIs, calculators, web search, etc.) to help it. It loop over `thought`, `action` and `observation`(`answer`) till get the `final answer`.
+
+```bash
+Thought: I need to find the capital of France.
+Action: search_tool
+Action Input: "capital of France"
+Observation: Paris
+
+Thought: Now I need the population of Paris.
+Action: search_tool
+Action Input: "population of Paris"
+Observation: 2.1 million
+
+Thought: I now know the final answer.
+
+Final Answer: Paris is the capital of France and has a population of ~2.1 million.
+```
+
+ReAct is useful for:
+- Multi-step problems
+- Tool-augmented tasks (web search, database lookup, etc.)
+- Making the agent's reasoning `transparent and auditable`
+
+It was first introduced in the paper:
+    "ReAct: Synergizing Reasoning and Acting in Language Models" (Yao et al., 2022)
+
+### Create the ReAct agent
+```bash
+agent = create_react_agent(
+    llm=llm,
+    tools=[search_tool, get_weather_data],
+    prompt=prompt
+)
+```
+
+### langchain's hub's ReAct Template:
+```bash
+Answer the following questions as best you can. You have access to the following tools:
+
+{tools}
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+
+Question: {input}
+Thought:{agent_scratchpad}
+```
+
+**Agent & Agent Executor**
+`AgentExecutor` orchestrates the `entire loop`:
+1. Sends inputs and previous messages/thought trace/Agent Scratchpad(initially empty) to the agent 
+2. Gets the next `action` from agent
+3. Executes that tool with provided input
+4. Adds the tool's `observation` back into the history
+5. Loops again with updated history until the agent says `Final Answer`.
+
+
+### Creating Agent Executor
+```bash
+agent_executor = AgentExecutor(
+    agent=agent,
+    tools=[search_tool, get_weather_data],
+    verbose=True # To show what the agent is thinking.
+)
+```
+
+## Example of AI Agent in details.
+Input Query:
+    "What is the capital of France and what is its population?"
+
+Answer the following questions as best you can. You have cess to the following tools:
+
+search_tool: Useful for answering general knowledge questions by querying a search API.
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [search_tool]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times) Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+
+Question: What is the capital of France and what is its population? 
+Thought:
+
+
+Thought: I need to find the capital of France first. 
+Action: search_tool
+Action Input: "capital of France"
+
+AgentAction(
+    tool="search_tool",
+    tool_input="capital of France",
+    log="Thought: I need to find the capital of France first."
+)
+
+
+observation = search_tool("capital of France")      "Paris is the capital of France"
+
+Thought: I need to find the capital of France first.
+Action: search_tool
+Action Input: "capital of France"
+Observation: Paris is the capital of France.
+
+
+Current state so far:
+- User Input:
+    `What is the capital of France and what is its population?`
+- Agent Scratchpad after Step 2:
+
+```bash
+Thought: I need to find the capital of France first.
+Action: search_tool
+Action Input: "capital of France"
+Observation: Paris is the capital of France.
+```
+
+Answer the following questions as best you can. You have access to the following tools
+
+
+search tool: Useful for answering general knowledge questions by querying a search API.
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [search_tool]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat Il times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+
+
+Question: What is the capital of France and what is its population? Thought: need to find the capital of France first.
+Action: search_tool
+Action Input: "capital of France"
+Observation: Paris is the capital of France.
+Thought:
+
+Thought: Now I need to find the population of Paris.
+Action: search_tool
+Action Input: "population of Paris"
+
+
+AgentAction(
+    tool="search_tool",
+    tool_input="population of Paris",
+    log="Thought: Now I need to find the population of Paris."
+)
+
+observation = search_tool("population of Paris")   "Paris has a population of 2.1 million.
+
+
+Thought: I need to find the capital of France first. Action: search_tool
+Action Input: "capital of France"
+Observation: Paris is the capital of France.
+Thought: Now I need to find the population of Paris.
+Action: search_tool
+Action Input: "population of Paris"
+Observation: Paris has a population of approximately 2.1 million.
+
+
+Answer the following questions as best you can. You have access to the following tools:
+
+search_tool: Useful for answering general knowledge questions by querying a search API.
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [search_tool]
+Action Input: the input to the action
+Observation: the result of the action
+...(this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+
+
+Question: What is the capital of France and what is its population? Thought: I need to find the capital of France first.
+Action: search_tool
+Action Input: "capital of France"
+Observation: Paris is the capital of France.
+Thought: Now I need to find the population of Paris.
+Action: search_tool
+Action Input: "population of Paris"
+Observation: Paris has a population of approximately 2.1 million.
+Thought:
+
+Thought: I now know the final answer.
+Final Answer: Paris is the capital of France and has a population of approximately 2.1 million.
+
+
+AgentFinish(
+return_values={"output": "The capital of France is Paris..."},
+log="Thought: I now know the final answer. \nFinal Answer: ..."
+)
+
+{
+"output": "Paris is the capital of France and has a population of approximately 2.1 million."
+}
+
+![alt text](/img/image-10.png)
+
+
 # What is Langchain?
 LangChain is an open-source library designed to simplify the process of building LLM based applications. It provides modular building blocks that let you create sophisticated LLM-based workflows with ease. LangChain can be used to create Simple conversational workflows like Chatbots, Text Summarizers, Multistep workflows, RAG applications, Basic level agents etc.
 
@@ -434,3 +745,92 @@ In LLMs, streaming means the model starts sending tokens (words) as soon as they
 4. Better UX for long output such as code
 5. You can cancel midway saving tokens
 6. You can interleave UI updates, e.g., show "thinking...", show tool results
+
+
+# LangSmith
+
+### Observability : 
+ Observability is the ability to understand a system's internal state by examining its external outputs, like logs, metrics, and traces. It allows you to diagnose issues, understand performance, and improve reliability by analyzing data generated by the system. Essentially, it's about being able to answer "why" something is happening within a system, even if you didn't anticipate the problem. It helps mitigate hallucination in RAG, debugging in Agents, and latency in LLMs.
+
+### Two big problems in LLMs/Agents/Chatbots:
+1. Retriever errors → wrong / irrelevant documents retrieved.
+2. Generator errors → LLM hallucinates or misuses context.
+
+In production, it's often unclear if the retriever or LLM caused failure. This is why observability is critical.
+
+### LangSmith Overview :
+
+LangSmith is a unified observability & evaluation platform where teams can debug, test, and monitor AI app performance. It tracks execution of application components step by step, capturing at a granular level:
+- what input and output each component receives and produces,
+- and the time taken.
+In LangSmith, an app is called a **project**, each execution is a **trace**, and each component’s execution is called a **run**.
+
+### What does LangSmith Trace?
+1. Input and Output (User query, LLM prompt (with inserted docs), Retrieved documents and LLM response)
+2. All the intermediate steps
+3. Latency
+4. Token usage
+5. Cost
+6. Error
+7. Tags
+8. Metadata (helps in search and debugging)
+9. Feedback
+
+### LLM Workflows as Graphs
+
+LangSmith treats an LLM application as a workflow, which can be represented as a graph where each node represents a task. When graphs become complex, debugging and managing them is difficult — LangSmith solves this. Every graph execution is logged in LangSmith as a trace. Each node (retriever, LLM, tool call, subgraph, etc.) becomes a run inside the trace. You can visualize the path: START → Retriever → Reranker → LLM Answer → END. If a workflow branches (conditional / parallel / subgraph), LangSmith records which path was executed. By default, LangSmith only tracks the LLM or chain invocation, not PDF loading, chunking, or embedding functions, this can be resolved using @traceable decorator.
+
+## Monitoring and Alerting
+
+### What it does:
+Monitoring in LangSmith looks across many traces at once to track the overall health of your LLM system. It aggregates metrics like latency (P50, P95, P99), token usage, cost, error rates, and success rates. Alerts can be configured to notify you when metrics drift outside acceptable ranges (e.g., latency spikes, higher error rates, or unexpected cost increases).
+
+### Why it matters:
+In production, issues often appear as patterns across multiple runs rather than in a single trace. Monitoring catches these early before they impact users. Instead of waiting for customer complaints, LangSmith proactively alerts you when performance degrades or costs spike, enabling faster responses and more reliable applications.
+
+## Evaluation
+
+### What it does:
+Evaluation in LangSmith measures the quality of LLM outputs. You can run tests against gold-standard datasets or apply evaluation metrics like faithfulness, relevance, or completeness. Supported methods include:
+- Automated scoring (LLM-as-a-judge),
+- Semantic similarity checks,
+- Custom Python evaluators.
+Evaluations can run offline (batch, pre-deployment) or online (continuous on live traffic).
+
+### Why it matters:
+LLM behavior is unpredictable — small changes in prompts, models, or retrieval may improve some cases but break others. Evaluation ensures objective, repeatable performance tracking, preventing regressions and validating improvements.
+
+### Example: For a RAG chatbot, you might evaluate:
+- Faithfulness → Are answers grounded in retrieved documents?
+- Relevance → Did the response address the user’s question?
+By running the same dataset across GPT-4, Claude, and LLaMA, you can compare models or pipeline setups.
+
+## Prompt Experimentation
+
+### What it does:
+LangSmith allows A/B testing of different prompt versions. Prompts are tested on the same dataset, evaluated against metrics, and results are logged over time. This builds a history of which prompts perform best under what conditions.
+
+## Dataset Creation & Annotation
+
+### What it does:
+- Tools to build datasets for evaluation and fine-tuning.
+- Supports manual annotation (e.g., labeling correctness).
+- Stores versioned datasets for reuse across projects.
+
+### Why it matters:
+High-quality datasets are essential for evaluation and feedback loops. Example:
+- Customer support → dataset of common Q&A for benchmarking RAG agent updates.
+
+## User Feedback Integration
+
+### What it does:
+- Capture thumbs up/down, ratings, or structured feedback from production users.
+- Feedback is logged alongside traces, tied to prompts, models, and states.
+- Enables bulk analysis of user preferences.
+
+## Collaboration
+
+### What it does:
+- Team members can view, share, and comment on traces, datasets, and evaluations.
+- Web UI enables non-engineers (PMs, QA, annotators) to inspect and annotate runs.
+- Supports shared dashboards for experiments.

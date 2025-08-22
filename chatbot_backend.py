@@ -1,16 +1,15 @@
-from langgraph.graph import StateGraph, START, END
-from typing import TypedDict, Annotated
 from langchain_core.messages import BaseMessage, HumanMessage
-from langchain_openai import ChatOpenAI
 # from langgraph.checkpoint.memory import InMemorySaver # used for in memory storage
 from langgraph.checkpoint.sqlite import SqliteSaver # pip install langgraph-checkpoint-sqlite
+from langgraph.graph import StateGraph, START, END
 # from langgraph.checkpoint.postgres import PostgresSaver # used for postgresql storage
 from langgraph.graph.message import add_messages
+from typing import TypedDict, Annotated
+from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 import sqlite3 
 
 load_dotenv()
-
 llm = ChatOpenAI()
 
 class ChatState(TypedDict):

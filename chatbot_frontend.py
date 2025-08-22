@@ -1,4 +1,5 @@
-# streamlit run .\chatbot_frontend.py
+# run : streamlit run .\chatbot_frontend.py
+# visit for langsmith : https://smith.langchain.com/
 from langchain_core.messages import HumanMessage
 from chatbot_backend import chatbot, retrieve_all_threads
 import streamlit as st
