@@ -1,0 +1,8 @@
+ddgs
+langgraph.checkpoint.sqlite
+langgraph
+langchain_community
+langchain_openai
+dotenv
+streamlit
+langchain_core
