@@ -844,3 +844,81 @@ High-quality datasets are essential for evaluation and feedback loops. Example:
 - Team members can view, share, and comment on traces, datasets, and evaluations.
 - Web UI enables non-engineers (PMs, QA, annotators) to inspect and annotate runs.
 - Supports shared dashboards for experiments.
+
+
+# MCP (Model Context Protocol)
+
+## Key Integrations
+- Salesforce integrations for sales teams  
+- Slack bots for message history and channel context  
+- Google Drive connectors for document access and collaboration  
+- Database query tools for analyzing company data  
+- GitHub integrations for code review and pull request management  
+
+## Implications of Tools
+- HR departments created tools for employee data access  
+- Finance teams built integrations with accounting systems  
+- Marketing teams developed tools for campaign management platforms  
+- IT departments created infrastructure monitoring and management tools  
+
+### Notable AI Tools
+- Cursor: File system access and intelligent code search  
+- Perplexity: Web browsing and real-time information retrieval  
+- ChatGPT Plus: Browsing, file uploads, and code execution  
+- Claude: Computer use capabilities  
+
+## Waves of Adoption
+
+### Wave 1: Pure Wonder
+- Fun and creative use cases such as explaining physics in unusual ways or writing songs in unique styles  
+- Impact: Social media exploded with AI-generated content  
+
+### Wave 2: Professional Adoption
+- Lawyers: Contract summarization  
+- Developers: Code debugging  
+- Teachers: Lesson plan creation  
+- Impact: Boost in individual productivity  
+
+### Wave 3: API Revolution
+- AI integrated into productivity tools like Word, Excel, Gmail, Docs, and Sheets  
+- Emergence of AI-first tools such as Cursor and Perplexity  
+- Impact: AI became widely accessible  
+
+## The Problem of Fragmentation
+- Multiple AI tools operate in silos with no interoperability  
+- AI in one tool (e.g., Notion) cannot communicate with AI in another (e.g., Slack)  
+- Developers face "copy-paste hell" where context assembly takes more time than actual development  
+- Integration issues:
+  - N × M development complexity  
+  - Different authentication methods  
+  - Different data formats and API patterns  
+  - Different error handling approaches  
+- Maintenance issues:
+  - Security fragmentation  
+  - High cost and time wastage  
+
+## Context in AI
+- Context is the information an AI uses to generate responses, including conversation history and external documents  
+- Example: In ChatGPT, previous messages form the context  
+
+## The Solution
+
+### Function Calling
+- Introduced by OpenAI in mid-2023  
+- Enables LLMs to call external functions directly  
+
+### Model Context Protocol (MCP)
+- GitHub introduced MCP as a standardized way for AI tools to integrate with external systems  
+
+#### Benefits
+- Reduces integrations from N × M to N + M  
+- No maintenance overhead  
+- Reduced cost and time  
+- Better security  
+
+#### Ecosystem Effect
+- More AI chatbots supporting MCP increases the value of MCP servers  
+- More MCP servers available increases the value of MCP-supporting AI tools  
+- Drives adoption, standardization, and overall ecosystem growth  
+
+Not supporting MCP risks being excluded from this rapidly growing ecosystem.
