@@ -10,17 +10,17 @@ from langchain_openai import ChatOpenAI
 # from langgraph.checkpoint.postgres import PostgresSaver # used for postgresql storage
 from langchain_core.tools import tool
 from dotenv import load_dotenv
-import requests
-import sqlite3
-import os
+import requests, sqlite3, os
 
+
+# -------------------
+# 1. LLM and Keys
+# -------------------
 load_dotenv()
+WEATHER_KEY = os.getenv("WEATHERSTACK_KEY")
 ALPHA_KEY = os.getenv("ALPHA_VANTAGE_KEY")
-
-# -------------------
-# 1. LLM
-# -------------------
 llm = ChatOpenAI()
+
 
 # -------------------
 # 2. Tools
@@ -52,9 +52,6 @@ def calculator(first_num: float, second_num: float, operation: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
-
-
-
 @tool
 def get_stock_price(symbol: str) -> dict:
     # DockString is must for tools as LLM model read this to use it.
@@ -67,10 +64,18 @@ def get_stock_price(symbol: str) -> dict:
     r = requests.get(url)
     return r.json()
 
+@tool
+def get_weather_data(city: str) -> str:
+    """
+    This function fetches the current weather data for a given city
+    """
+    url = f'http://api.weatherstack.com/current?access_key={WEATHER_KEY}&query={city}'
+    response = requests.get(url)
+    return response.json()
 
-
-tools = [search_tool, get_stock_price, calculator]
+tools = [search_tool, get_stock_price, calculator, get_weather_data]
 llm_with_tools = llm.bind_tools(tools)
+
 
 # -------------------
 # 3. State
@@ -79,6 +84,8 @@ class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     # BaseMessage is the base message capable to storing all message incluing HumanMessage, AIMessage, SystemMessage etc.
     # add_messages is a Reducer function to prevent from preventing erasing when adding the new message
+
+
 # -------------------
 # 4. Nodes
 # -------------------
@@ -89,6 +96,7 @@ def chat_node(state: ChatState):
     return {"messages": [response]} # response store state
 
 tool_node = ToolNode(tools)
+
 
 # -------------------
 # 5. Checkpointer
@@ -105,6 +113,7 @@ tool_node = ToolNode(tools)
 conn = sqlite3.connect(database="chatbot.db", check_same_thread=False) # check_same_thread is set to False to allow multiple threads to use the same connection
 checkpointer = SqliteSaver(conn=conn)
 
+
 # -------------------
 # 6. Graph
 # -------------------
@@ -119,6 +128,7 @@ graph.add_edge('tools', 'chat_node')
 graph.add_edge("chat_node", END)
 
 chatbot = graph.compile(checkpointer=checkpointer)
+
 
 # -------------------
 # 7. Helper

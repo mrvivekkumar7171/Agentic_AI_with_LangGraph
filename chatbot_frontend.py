@@ -92,9 +92,15 @@ if user_input:
     # To identify the user, whose conversation is stored in the memory.
     # CONFIG = {'configurable': {'thread_id': st.session_state['thread_id']}}
     CONFIG = {
-        "configurable": {"thread_id": st.session_state["thread_id"]},
-        "metadata": {"thread_id": st.session_state["thread_id"]},
         "run_name": "chat_turn",
+        "configurable": {"thread_id": st.session_state["thread_id"]},
+        "metadata": {
+            "thread_id": st.session_state["thread_id"],
+            "model": "gpt-4o-mini",
+            "temperature": 0.7,
+            "parser": "StrOutputParser"
+        },
+        "tags": ["llm app", "report_generation", "summarization"]
     }
 
     # Assistant streaming block
@@ -142,3 +148,8 @@ if user_input:
     st.session_state["message_history"].append(
         {"role": "assistant", "content": ai_message}
     )
+
+# question to ask the llm/agent.
+# What is the release date of Dhadak 2?
+# What is the current temp of gurgaon
+# Identify the birthplace city of Kalpana Chawla (search) and give its current temperature.
