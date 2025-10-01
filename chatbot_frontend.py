@@ -5,7 +5,7 @@ from chatbot_backend import chatbot, retrieve_all_threads
 import streamlit as st
 import uuid
 
-# =========================== Utilities ===========================
+# ======================== Utilities ========================
 # function to generate a unique thread id
 def generate_thread_id():
     return uuid.uuid4()
