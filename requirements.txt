@@ -1,8 +1,10 @@
 ddgs
 langgraph.checkpoint.sqlite
+langchain_mcp_adapters
 langgraph
 langchain_community
 langchain_openai
 dotenv
 streamlit
 langchain_core
+fastmcp
