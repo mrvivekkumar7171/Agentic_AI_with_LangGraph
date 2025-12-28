@@ -740,13 +740,133 @@ Execution stops when:
 - No messages are in transit
 
 ## Sequential Workflows
+ Prompt Chaining: It is also called as prompt chaining as output of one is input for the next node.
+
+![alt text](img/image-12.png)
+
+```python
+# nodes
+graph.add_node('create_outline',create_outline)
+graph.add_node('create_blog',create_blog)
+graph.add_node('score_blog',score_blog)
+
+# edges
+graph.add_edge(START, 'create_outline')
+graph.add_edge('create_outline', 'create_blog')
+graph.add_edge('create_blog', 'score_blog')
+graph.add_edge('score_blog', END)
+```
 
 ## Parallel Workflows
 
+    For parallel workflow, each nodes must return the required part of the state only.
+    While, for others we can send the whole state. But, to keep it simple, we can just use required part of the state for nodes.
+```python
+# nodes
+graph.add_node("evaluate_language", evaluate_language)
+graph.add_node("evaluate_analysis", evaluate_analysis)
+graph.add_node("evaluate_thought", evaluate_thought)
+graph.add_node("final_evaluation", final_evaluation)
+
+# nodes : Fan-out → join
+graph.add_edge(START, "evaluate_language")
+graph.add_edge(START, "evaluate_analysis")
+graph.add_edge(START, "evaluate_thought")
+graph.add_edge("evaluate_language", "final_evaluation")
+graph.add_edge("evaluate_analysis", "final_evaluation")
+graph.add_edge("evaluate_thought", "final_evaluation")
+graph.add_edge("final_evaluation", END)
+```
+
 ## Conditional Workflows
+
+```python
+graph.add_node('find_sentiment', find_sentiment)
+graph.add_node('positive_response', positive_response)
+graph.add_node('run_diagnosis', run_diagnosis)
+graph.add_node('negative_response', negative_response)
+
+graph.add_edge(START, 'find_sentiment')
+graph.add_conditional_edges('find_sentiment', check_sentiment) # check_condition will fit the correct function.
+
+graph.add_edge('positive_response', END)
+
+graph.add_edge('run_diagnosis', 'negative_response')
+graph.add_edge('negative_response', END)
+```
+
+![alt text](img/image-13.png)
 
 ## Iterative Workflows
 
+```python
+graph.add_node('generate_tweet', generate_tweet)
+graph.add_node('evaluate_tweet', evaluate_tweet)
+graph.add_node('optimize_tweet', optimize_tweet)
+
+graph.add_edge(START, 'generate_tweet')
+graph.add_edge('generate_tweet', 'evaluate_tweet')
+
+graph.add_conditional_edges('evaluate_tweet', route_evaluation)
+
+graph.add_edge('approved', END)
+
+graph.add_edge('needs_improvement', 'optimize_tweet') # calling back the optimize_tweet function for iteration
+graph.add_edge('optimize_tweet', 'evaluate_tweet')
+```
+
+![alt text](img/image-14.png)
+
+### Persistence:
+**Persistence** in LangGraph refers to the ability to save and restore the state of a workflow over time. It not just store the initial and  final state but also the intermediate state. It is implemented with the help of **checkpointers**. **Threads** in Persistence helps by assigning Thread ID to each instance of the workflow to retrive that.
+
+Examples:- 
+- we can start from the intermediate state in case of crash instead of starting from the initial, this feature is called the **Fault Tolerance**.
+- helps in resuming conversation with chatbot from past conversation by saving the intermediate state into the database.
+- helps in storing and retriving the past conversation to resume the conversation. It is called **Short Term Memory**
+- To make the Agentic AI to wait for human response before execution, it is called **Human In the Loop**. It work the same way as fault tolerance by knowingly done.
+- **Time Travel**: we can replay or execute the workflow from any intermediate checkpoint when there is no error or failure. It helps in debugging.
+#### InMemorySaver:
+
+```python
+from langgraph.checkpoint.memory import InMemorySaver
+checkpointer = InMemorySaver() # Creating checkpointer object
+workflow = graph.compile(checkpointer=checkpointer) # pass the checkpointer object at the compilation to add checkpointer at each step
+```
+
+```python
+# To fetch the current state or final state if the workflow is finished with metadata for the thread ID.
+print(workflow.get_state(config))
+
+# To fetch all intermediate states with metadata for the thread ID, even after program execution.
+print(list(workflow.get_state_history(config)))
+```
+
+#### Time Travel
+Here, we will first retrive the Checkpoint ID for a particular node by specifing node name then run workflow from the node. This would result in different value for joke and explanation.
+
+```python
+config1 = {"thread_id": thread_id, "checkpoint_id": checkpoint_id}
+workflow.invoke(None, {"configurable": config1}) # Running the workflow from a particular checkpoint for a Thread ID and Checkpoint ID.
+```
+
+### Updating State
+Updating topic and re-running the workflow with new topic
+
+```python
+# It would return the new state Checkpoint ID with new topic
+new_checkpoint_id = workflow.update_state({"configurable": {"thread_id": "1", "checkpoint_id": checkpoint_id, "checkpoint_ns": ""}}, {'topic':new_topic})['configurable']['checkpoint_id']
+workflow.invoke(None, {"configurable": {"thread_id": "1", "checkpoint_id": new_checkpoint_id}})
+```
+
+### Fault Tolerance
+This is another workflow where we will simulate long-running hang or error and try to re-run from the error.
+
+```python
+graph.invoke({"input": input}, config={"configurable": {"thread_id": thread_id}}) # assume some error occurs here
+
+final_state = graph.invoke(None, config={"configurable": {"thread_id": thread_id}}) # Re-run to resume from last state
+```
 
 ### What is Streaming
 In LLMs, streaming means the model starts sending tokens (words) as soon as they're generated, instead of waiting for the entire response to be ready before returning it.

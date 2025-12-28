@@ -1,13 +1,12 @@
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_community.tools import DuckDuckGoSearchRun
 from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.checkpoint.sqlite import SqliteSaver # pip install langgraph-checkpoint-sqlite
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langsmith import traceable
 from typing import TypedDict, Annotated
-# from langgraph.checkpoint.memory import InMemorySaver # used for in memory storage
 from langchain_openai import ChatOpenAI
-# from langgraph.checkpoint.postgres import PostgresSaver # used for postgresql storage
 from langchain_core.tools import tool
 from dotenv import load_dotenv
 import requests, sqlite3, os
@@ -19,13 +18,12 @@ import requests, sqlite3, os
 load_dotenv()
 WEATHER_KEY = os.getenv("WEATHERSTACK_KEY")
 ALPHA_KEY = os.getenv("ALPHA_VANTAGE_KEY")
-llm = ChatOpenAI()
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 
 # -------------------
 # 2. Tools
 # -------------------
-# Tools
 search_tool = DuckDuckGoSearchRun(region="us-en") # pre-build tools.
 
 @tool
@@ -89,6 +87,7 @@ class ChatState(TypedDict):
 # -------------------
 # 4. Nodes
 # -------------------
+@traceable(name="chat_node_fn", tags=["chat"])
 def chat_node(state: ChatState):
     """LLM node that may answer or request a tool call."""
     messages = state["messages"] # take user query from state
