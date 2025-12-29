@@ -4,27 +4,25 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from langsmith import traceable
 from typing import TypedDict, Annotated
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
+from langsmith import traceable
 from dotenv import load_dotenv
 import requests, sqlite3, os
 
 
-# -------------------
-# 1. LLM and Keys
-# -------------------
+
+# =========================== LLM and Keys ===========================
 load_dotenv()
 WEATHER_KEY = os.getenv("WEATHERSTACK_KEY")
 ALPHA_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 
-# -------------------
-# 2. Tools
-# -------------------
-search_tool = DuckDuckGoSearchRun(region="us-en") # pre-build tools.
+
+# =========================== Tools ===========================
+search_tool = DuckDuckGoSearchRun(region="us-en")
 
 @tool
 def calculator(first_num: float, second_num: float, operation: str) -> dict:
@@ -52,12 +50,11 @@ def calculator(first_num: float, second_num: float, operation: str) -> dict:
 
 @tool
 def get_stock_price(symbol: str) -> dict:
-    # DockString is must for tools as LLM model read this to use it.
     """
     Fetch latest stock price for a given symbol (e.g. 'AAPL', 'TSLA') 
     using Alpha Vantage with API key in the URL.
     """
-    # to get the api key visit : https://www.alphavantage.co/support/#api-key
+    # For API key : https://www.alphavantage.co/support/#api-key
     url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={ALPHA_KEY}"
     r = requests.get(url)
     return r.json()
@@ -73,68 +70,62 @@ def get_weather_data(city: str) -> str:
 
 tools = [search_tool, get_stock_price, calculator, get_weather_data]
 llm_with_tools = llm.bind_tools(tools)
-
-
-# -------------------
-# 3. State
-# -------------------
-class ChatState(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
-    # BaseMessage is the base message capable to storing all message incluing HumanMessage, AIMessage, SystemMessage etc.
-    # add_messages is a Reducer function to prevent from preventing erasing when adding the new message
-
-
-# -------------------
-# 4. Nodes
-# -------------------
-@traceable(name="chat_node_fn", tags=["chat"])
-def chat_node(state: ChatState):
-    """LLM node that may answer or request a tool call."""
-    messages = state["messages"] # take user query from state
-    response = llm_with_tools.invoke(messages) # send to llm
-    return {"messages": [response]} # response store state
-
 tool_node = ToolNode(tools)
 
 
-# -------------------
-# 5. Checkpointer
-# -------------------
-# If we will ask 10 + 2 then it will tell 12. If we will aks again 5 * previous result then it won't give the right answer. Because we are calling the llm with current HumanMessage only.
-# To solve this problem we have to use the concept of Persistent, where we store the past conversation data to a databases (like sqlite and postgresql) if data is largescale or RAM/memory if data is small.
-# checkpointer = InMemorySaver() # to store the previous conversation to the memory
-# postgres_saver = PostgresSaver.from_conn_string(
-#     "postgresql://user:password@localhost:5432/mydatabase" # for production or multi-instance setups. Requires connection details like host, port, database name, user, and password.
-# )
-# sqlite_saver = SqliteSaver.from_conn_string("sqlite:///checkpoints.db") # Good for small to medium projects or local development. 
-# If you want custom SQLite options (like WAL mode, PRAGMA tuning, shared cache). If you already have an existing SQLite connection being used elsewhere in your app. If you need thread-safe or async connection handling. to visualize the database you can use SQLite studio.
-                    # or
+# =========================== State ===========================
+class ChatState(TypedDict):
+    # BaseMessage is the base class of all messages incluing HumanMessage, AIMessage, SystemMessage etc.
+    messages: Annotated[list[BaseMessage], add_messages]
+
+
+# =========================== Nodes ===========================
+@traceable(name="chat_node_fn", tags=["chat"])
+def chat_node(state: ChatState):
+    """LLM node that may answer or request a tool call based on user's input."""
+    
+    messages = state["messages"]
+    response = llm_with_tools.invoke(messages)
+    return {"messages": [response]} # updating the response to the ChatState's messages
+
+
+
+# =========================== Checkpointer ===========================
+# for production or multi-instance setups. Requires connection details like host, port, database name, user, and password.
+# postgres_saver = PostgresSaver.from_conn_string("postgresql://user:password@localhost:5432/mydatabase")
+
 conn = sqlite3.connect(database="chatbot.db", check_same_thread=False) # check_same_thread is set to False to allow multiple threads to use the same connection
 checkpointer = SqliteSaver(conn=conn)
 
 
-# -------------------
-# 6. Graph
-# -------------------
+
+# =========================== Graph ===========================
+# Create the ChatState instance
 graph = StateGraph(ChatState)
+
+# Nodes
 graph.add_node("chat_node", chat_node)
 graph.add_node("tools", tool_node)
 
+# Edges
 graph.add_edge(START, "chat_node")
-
-graph.add_conditional_edges("chat_node",tools_condition)
+graph.add_conditional_edges("chat_node", tools_condition)
 graph.add_edge('tools', 'chat_node')
 graph.add_edge("chat_node", END)
 
-chatbot = graph.compile(checkpointer=checkpointer)
+# Compile Graph
+chatbot = graph.compile(checkpointer=checkpointer) # pass the checkpointer object at the compilation to add it at each steps.
 
 
-# -------------------
-# 7. Helper
-# -------------------
+
+# =========================== Helper ===========================
 def retrieve_all_threads():
-    all_threads = set() # store only unique thread ids
-    for checkpoint in checkpointer.list(None):# to get checkpoints of all threads ids
-        all_threads.add(checkpoint.config['configurable']['thread_id']) # saving the thread id to the set
+    """
+    return the list of all unique thread_ids from the database
+    """
 
-    return list(all_threads) # returning the list of unique thread ids from the database
+    all_threads = set()
+    for checkpoint in checkpointer.list(None): # all checkpoints of all threads ids from the database
+        all_threads.add(checkpoint.config['configurable']['thread_id'])
+
+    return list(all_threads)
