@@ -33,7 +33,9 @@ Other distinctions:
 
 You define the `state schema`, followed by the `Nodes` (functions that perform tasks) and `Edges` (which node connects to which). You call `.compile()` on the `StateGraph`. This checks the graph structure and prepares it for execution. You run the graph with `.invoke(initial_state)`. LangGraph sends the initial state as a `message` to the entry node(s). Execution proceeds in `rounds`. In each round (super-step), all `active nodes` (those that received messages) run in `parallel`, and each returns an `update` (message) to the state. The messages are passed to downstream nodes via edges. Nodes that receive messages become active for the `next round`. Execution stops when no nodes are active or no messages are in transit.
 
-![Prompt Chaining (Output of one is input for the next node)](img/image.png) ![Routing](img/image-1.png) ![Parallelization](img/image-2.png) ![Orchestrator Workers](img/image-3.png) ![Evaluator Optimizer](img/image-4.png)
+<img src="img/image.png" alt="Prompt Chaining (Output of one is input for the next node)" width="50%"> <img src="img/image-1.png" alt="Routing" width="50%">
+<img src="img/image-2.png" alt="Parallelization" width="50%"> <img src="img/image-3.png" alt="Orchestrator Workers" width="50%">
+<img src="img/image-4.png" alt="Evaluator Optimizer" width="50%">
 
 ## Types of Workflows:
 
@@ -100,7 +102,7 @@ graph.add_edge('needs_improvement', 'optimize_tweet') # calling back the optimiz
 graph.add_edge('optimize_tweet', 'evaluate_tweet')
 ```
 
-![alt text](img/image-12.png) ![alt text](img/image-13.png) ![alt text](img/image-14.png)
+<img src="img/image-12.png" alt="alt text" width="30%"> <img src="img/image-13.png" alt="alt text" width="30%"> <img src="img/image-14.png" alt="alt text" width="30%">
 
 # Agentic AI
 
@@ -149,7 +151,8 @@ To controll the Autonomy :
 
 ### 3. **Tool**
 A **Tool** is just a Python function (or API) that is packaged in a way the LLM can understand and call when needed. NOTE: tools are also runnables. LLMS (like GPT) are great at Reasoning (Think) and Language generation (Text Generation or Speak) But they can't do things like Access live data (weather, news), Do reliable math (difficult mathematics), Call APIs (post a tweet on tweeter), Run code and Interact with a database. An AI agent is an LLM-powered system that can autonomously think, decide, and take actions using external tools or APIs to achieve a goal. `DockString is must for tools as LLM can only read this to know what that tool does.`
-![Types of Tools](/img/image-6.png) ![Agent=LLM+Tools](/img/image-7.png)
+
+<img src="img/image-6.png" alt="Types of Tools" width="50%"> <img src="img/image-7.png" alt="Agent = LLM + Tools" width="50%">
 
 **Toolkits**: A toolkit is just a collection (bundle) of related tools that serve a common purpose- packaged together for convenience and `reusability`.
 In LangChain, a toolkit might be `GoogleDriveToolKit` and it can contain the following tools ,`GoogleDriveCreateFileTool` (Upload a file) , `GoogleDriveSearchTool` (Search for a file by name/content ), `GoogleDriveReadFileTool` (Read contents of a file).
@@ -167,14 +170,14 @@ In LangChain, a toolkit might be `GoogleDriveToolKit` and it can contain the fol
 - **Built-in Tools**: A tool that is pre-built, production- ready, and requires minimal or no setup. You don't have to write the function logic yourself - you just import and use it. Example:- DuckDuckGoSearchRun and WikipediaQueryRun etc.
 
 - **Custom Tools** : A tool that you define yourself. Example: calling custom APIs, encapsulate business logic, interact with your database, product, or app etc. Ways to create Custom Tools are @tool decorator, Structured Tool & Pydantic and Base Tool class.
-![Ways to create tools](/img/image-8.png) ![Tool calling](img/image-11.png)
+<img src="img/image-8.png" alt="Ways to create tools" width="50%"> <img src="img/image-11.png" alt="Tool calling" width="50%">
 
     - **Structured Tool** in LangChain is a special type of tool where the input to the tool follows a structured schema, typically defined using a Pydantic model. The best way to make enforce constants and most used in production.
 
     - **BaseTool** is the abstract base class for all tools in LangChain. It defines the core structure and interface that any tool must follow, whether it's a simple one-liner or a fully customized function. All other tool types like `@tool`, `Structured Tool` are built on top of BaseTool. Used to perform multiple asynchronous functions unlike in tool decorator and Structured Tool.
 
 **Model Context Protocol (MCP)** is an open standard for linking LLMs and AI with external data and tools (like databases, APIs, files) to give them real-world context, making AI more accurate and capable, similar to HTTP for web browsing. Like `Google Drive connectors` for document access & collaboration and `GitHub integrations` for code review & pull request management. It reduces integrations from `N × M` to `N + M`.
-MCP is needed because Multiple AI tools operate in silos with no interoperability, AI in one tool (e.g., Notion) cannot communicate with AI in another (e.g., Slack), Developers face "copy-paste hell" where context assembly takes more time than actual development and Integration issues like `N × M development complexity`, `Different authentication methods`, `Different data formats` and `API patterns and Different error handling approaches` and maintenance issues like `Security fragmentation`, `High cost and time wastage`.
+MCP is needed because Multiple AI tools operate in silos with no interoperability, AI in one tool (e.g., Notion) cannot communicate with AI in another (e.g., Slack), Developers face "copy-paste hell" where context assembly takes more time than actual development and Integration issues like `N × M development complexity`, `Different authentication methods`, `Different data formats` and `API patterns and Different error handling approaches` and maintenance issues like `Security fragmentation`, `High cost and time wastage`. MCP uses async functions so all chatbot must be async too (parallel execution can be done). Also, MCP contains server (code written by Companies like GitHub, Google etc. we just run the code on our server with API KEYs and the server talk to the GitHub and Google APIs) and client (persist on chatbot code and make request to MCP server).
 
 ```python
 client = MultiServerMCPClient(
@@ -186,6 +189,27 @@ client = MultiServerMCPClient(
     }
 )
 ```
+
+**RAG** is a technique that combines information retrieval with language generation, where a model retrieves relevant documents from a knowledge base and then uses them as context to generate accurate and grounded responses. LLM has problem of outdated knowledge, privacy (no knowledge of data we have) and Hallucination (refer to souces but it don't exist in reality). RAG enables `up-to-date information`, `better privacy`, `no limit of document size`. First we loads a document and split into small pages then convert these pages into the vectors using some embedding models and store these vectors and corresponding original text into some vector store like `faiss` and `chroma` etc. for future retrival. We send the query from the user to the retriver and the retriver fatch the related pages from the vector store that are related to the query and pass the pages as `context` and query to LLM for response generation. Before building the embedding, the system checks if an index already exists. If not, it creates an `.indices` folder in the working directory and builds. Build is triggered when `first-ever run` (no cache exists), `PDF content`, `PDF file metadata` (e.g., size), `Chunking parameters` (chunk size/overlap) and `Embedding model` (embedding model) changes. Components of RAG are `Document Loaders`, `Text Splitters`, `Vector Databases` and `Retrievers`.
+
+**Document Loaders** are used to load data from various sources into a standardized format (usually as `Document objects`), which can then be used for chunking, embedding, retrieval, and generation. Most popular document loaders are `TextLoader`, `PyPDFLoader`, `WebBaseLoader`, `CSVLoader` etc. Also we can create a custom Document Loader (https://python.langchain.com/docs/how_to/document_loader_custom/).
+
+- **TextLoader** reads only plain text `.txt` files and converts them into LangChain Document objects. Ideal for loading chat logs, scraped text, transcripts, code snippets, or any plain text data into a LangChain pipeline.
+
+- **WebBaseLoader** loads and extract text content from web pages `URLs`. It uses BeautifulSoup under the hood to parse HTML and extract visible text (what's in the HTML, not what loads after the page renders). Used for blogs, news articles, or public websites where the content is primarily text-based and static. Doesn't handle JavaScript-heavy pages well (use SeleniumURLLoader for that).
+
+- **DirectoryLoader** loads `multiple documents from a directory` of files.
+- `**/*.txt`: All .txt files in all subfolders
+- `*.pdf`: All .pdf files in the root directory
+- `data/*.csv` : All .csv files in the data/ folder
+- `**/*`: All files (any type, all folders)
+- `**` = recursive search through subfolders
+
+- **CSVLoader** loads `CSV files` into LangChain document objects - `one per row`, by default.
+
+**load()**: loads `everything at once` (Eager Loading) into the memory and `returns a list of document objects`. Best when the number of documents is small. You want everything loaded upfront.
+
+**lazy_load()**: loads `on demand` (Lazy Loading) and `returns a generator of document objects` and which is used to fetched one document object at a time as needed. Best when you're dealing with large documents or lots of files. You want to stream processing (e.g., chunking, embedding) without using lots of memory.
 
 ### 4. **Observability & Debugging using LangSmith**
 **Observability** is the ability to understand a system's internal state by examining its external outputs, like logs, metrics, and traces. It allows you to diagnose issues, understand performance, and improve reliability by analyzing data generated by the system. Essentially, it's about being able to `answer "why" something is happening within a system`, even if you didn't anticipate the problem. It helps `mitigate hallucination in RAG`, debugging in Agents, and latency in LLMs. Two big problems in LLMs/Agents/Chatbots are `Retriever errors` (wrong / irrelevant documents retrieved) and `Generator errors` (LLM hallucinates or misuses context). In production, it's often unclear if the retriever or LLM caused failure. This is why observability is critical.

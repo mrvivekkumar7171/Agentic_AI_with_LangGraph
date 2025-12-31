@@ -8,3 +8,5 @@ dotenv
 streamlit
 langchain_core
 fastmcp
+pypdf
+faiss-cpu
