@@ -1,77 +1,96 @@
 # https://smith.langchain.com/              To run : streamlit run .\frontend.py
+from backend import chatbot, retrieve_all_threads, ingest_pdf, get_thread_metadata, client
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from backend import chatbot, retrieve_all_threads, ingest_pdf, get_thread_metadata
+from langchain_core.tracers.context import collect_runs
 from langgraph.types import Command
 import streamlit as st
 import uuid
 
 
 # =========================== Utilities ===========================
-def generate_thread_id():
+def generate_thread_id()  -> uuid.UUID:
     """
-    Generate a unique thread id
-    """
+    Generates a new, unique identifier for a chat thread.
 
+    Returns:
+        uuid.UUID: A random UUID object.
+    """
     return uuid.uuid4()
 
-def add_thread(thread_id):
+def add_thread(thread_id: uuid.UUID | str) -> None:
     """
-    Add thread id to the chat threads list in session state
-    """
+    Adds a thread ID to the session state list if it doesn't already exist.
 
+    Args:
+        thread_id (uuid.UUID | str): The thread ID to add.
+    """
     if thread_id not in st.session_state["chat_threads"]:
         st.session_state["chat_threads"].append(thread_id)
 
-def reset_chat():
+def reset_chat() -> None:
     """
-    Reset the chat for new chat session
+    Resets the current session state to start a new conversation.
+    It generates a new thread ID, adds it to the list, and clears message history.
     """
-
     thread_id = generate_thread_id()
     st.session_state["thread_id"] = thread_id
     add_thread(thread_id)
-    st.session_state["message_history"] = [] # resetting the message_history
+    st.session_state["message_history"] = []
 
-def load_conversation(thread_id):
+def load_conversation(thread_id: str) -> list:
     """
-    Load the conversation/chat history for a given thread id
-    """
+    Loads the message history for a specific thread from the backend state.
 
-    # To fetch the current state or final state if the workflow is finished with metadata for the thread ID.
+    Args:
+        thread_id (str): The ID of the thread to load.
+
+    Returns:
+        list: A list of message objects (HumanMessage, AIMessage, etc.).
+    """
+    # Fetch the state from LangGraph using the thread_id
     state = chatbot.get_state(config={"configurable": {"thread_id": thread_id}})
-    return state.values.get("messages", []) # return messages if in state else empty list
+    return state.values.get("messages", [])
 
 
 # ======================= Session Initialization ===================
 # Session State is a type of dictionary helps to preserve the data until the whole page is reload.
-if "message_history" not in st.session_state: # Initializing message_history in session_state
+
+# Initialize 'message_history' to store chat messages for display
+if "message_history" not in st.session_state:
     st.session_state["message_history"] = []
 
-if "thread_id" not in st.session_state: # Initializing thread_id in session_state
+# Initialize 'thread_id' for the current active conversation
+if "thread_id" not in st.session_state:
     st.session_state["thread_id"] = generate_thread_id()
 
-if "chat_threads" not in st.session_state: # Loading chat_threads if don't exist in session_state
-    st.session_state["chat_threads"] = retrieve_all_threads() # list of thread ids that already exist in the database
+# Initialize 'chat_threads' by fetching existing threads from DB
+if "chat_threads" not in st.session_state:
+    st.session_state["chat_threads"] = retrieve_all_threads()
 
+# Initialize a key to reset the file uploader widget programmatically
 if "file_uploader_key" not in st.session_state:
     st.session_state["file_uploader_key"] = 0
 
-add_thread(st.session_state["thread_id"]) # Add the current thread id to the chat_threads list on page load
+# Ensure current thread is in the chat_threads list
+add_thread(st.session_state["thread_id"])
 
 thread_key = str(st.session_state["thread_id"])
-# Fetch persistent metadata for the current thread
+
+# Fetch metadata (uploaded files info) for the current thread
 current_metadata = get_thread_metadata(thread_key)
 files_info = current_metadata.get("files", {})
 
+# Prepare the list of threads for the sidebar (reversed to show newest first)
 threads = st.session_state["chat_threads"][::-1]
 selected_thread = None
 
-# Configuration for the current thread
+# Base configuration for LangGraph execution
 CONFIG = {
     "run_name": "chat_turn",
     "configurable": {"thread_id": thread_key}, 
     "metadata": {
         "thread_id": thread_key,
+        "user_id": "user_123",
         "model": "gpt-4o-mini",
         "temperature": 0.7,
         "parser": "StrOutputParser"
@@ -82,13 +101,13 @@ CONFIG = {
 
 # ============================ Sidebar ============================
 st.sidebar.title("TheSoftMax")
-st.sidebar.markdown(f"**Thread ID:** `{thread_key}`")
 
+# Button to start a fresh conversation
 if st.sidebar.button("New Chat", use_container_width=True):
     reset_chat()
     st.rerun()
 
-# --- Files List Section ---
+# List of uploaded documents with stats
 st.sidebar.subheader("Uploaded Documents")
 
 if files_info:
@@ -98,15 +117,16 @@ if files_info:
 else:
     st.sidebar.info("No documents uploaded yet.")
 
-# --- Upload Section ---
+# Document upload section
 uploaded_pdf = st.sidebar.file_uploader(" ", type=["pdf"],key=f"uploader_{st.session_state['file_uploader_key']}")
 
 if uploaded_pdf:
-    # Check against persistent metadata
+    # Prevent re-indexing the same file
     if uploaded_pdf.name in files_info:
         st.sidebar.info(f"`{uploaded_pdf.name}` is already indexed.")
     else:
         with st.sidebar.status("Indexing PDF…", expanded=True) as status_box:
+            # Call backend function to process PDF
             summary = ingest_pdf(
                 uploaded_pdf.getvalue(),
                 thread_id=thread_key,
@@ -118,85 +138,126 @@ if uploaded_pdf:
                 st.sidebar.error(summary.get("error", "Processing failed."))
             else:
                 status_box.update(label="✅ Indexed", state="complete")
+                # Increment key to reset uploader widget and re-run to update the file list immediately
                 st.session_state["file_uploader_key"] += 1
-                st.rerun() # Rerun to update the file list immediately
+                st.rerun()
 
 st.sidebar.divider()
 st.sidebar.subheader("History")
 
+# Display list of past threads
 if not threads:
     st.sidebar.write("No past conversations.")
 else:
     for thread_id in threads:
-        # Highlight current thread
+        # Highlight the currently active thread
         label = f"➤ {thread_id}" if str(thread_id) == thread_key else str(thread_id)
         if st.sidebar.button(label, key=f"side-thread-{thread_id}"):
             selected_thread = thread_id
 
 
-# ============================ Main UI ============================
+# ============================ Main Chat UI ============================
 
-# 1. Display Chat History
+# 1. Render existing chat history
 for message in st.session_state["message_history"]:
 
     # For each role in message_history display the message in the chat window
     with st.chat_message(message["role"]):
         st.text(message["content"])
 
+# 2. Feedback Scoring
+if st.session_state.get("last_run_id"):
+    # Display thumbs-up/down feedback
+    # We use the run_id as part of the key so the widget resets for new responses
+    feedback = st.feedback("thumbs", key=f"feedback_{st.session_state.last_run_id}")
+    
+    if feedback is not None:
+        # feedback value is 1 for Thumbs Up, 0 for Thumbs Down
+        score = 1 if feedback == 1 else 0
+        
+        # Send feedback to LangSmith linked to the specific run_id
+        client.create_feedback(
+            st.session_state.last_run_id,
+            key="user_score",
+            score=score
+        )
+        st.toast("Feedback recorded!", icon="📝")
+        del st.session_state["last_run_id"]
 
-# 2. Check for HITL Interrupts (Paused State)
+# 3. Check for Human-in-the-Loop (HITL) Interrupts
 snapshot = chatbot.get_state(CONFIG)
 pending_interrupt_value = None
-
 if snapshot.next:
-    # Check tasks for interrupts. In LangGraph, tasks contain the interrupt info.
     for task in snapshot.tasks:
         if task.interrupts:
-            # The value passed to `interrupt(...)` in backend.py
+            # Extract the interrupt message (e.g., "Approve buying X shares?")
             pending_interrupt_value = task.interrupts[0].value
             break
 
-
-# 3. Helper Function to Stream Response
+# 4. Helper Function to Stream Response
 def stream_graph_response(input_payload):
-    with st.chat_message("assistant"): # Assistant/Chatbot streaming response
-        status_holder = {"box": None} # Hold the status of tool usage by Assistant
+    """
+    Streams the response from the LangGraph chatbot to the Streamlit UI.
+    Handles ToolMessages (displaying status updates) and AIMessages (streaming text).
+
+    Args:
+        input_payload (dict or Command): The input to the graph (user message or resume command).
+    
+    Returns:
+        str: The final aggregated text content from the assistant.
+    """
+    with st.chat_message("assistant"):
+        # Hold the status of tool used by Chatbot
+        status_holder = {"box": None}
 
         def ai_only_stream():
             """
-            Stream only the assistant messages from the chatbot response to the UI.
+            Internal generator to yield (Stream) text chunks (the assistant messages) from the chatbot response to the UI.
             """
+            # 1. Wrap execution in collect_runs to capture the trace ID
+            with collect_runs() as cb:
+                for message_chunk, _ in chatbot.stream(
+                    input_payload,
+                    config=CONFIG,
+                    stream_mode="messages",
+                ):
+                    # Handle Tool Execution Updates
+                    if isinstance(message_chunk, ToolMessage):
+                        tool_name = getattr(message_chunk, "name", "tool")
+                        if status_holder["box"] is None:
+                            status_holder["box"] = st.status(f"🔧 Using `{tool_name}` …", expanded=True)
+                        else:
+                            status_holder["box"].update(label=f"🔧 Using `{tool_name}` …", state="running", expanded=True)
 
-            # Calling the chatbot with stream method to get the response in stream
-            for message_chunk, _ in chatbot.stream( # calling the LLM using stream method
-                input_payload,
-                config=CONFIG,
-                stream_mode="messages",
-            ):
-                # status_holder show tool is running if message_chunk is ToolMessage
-                if isinstance(message_chunk, ToolMessage):
-                    tool_name = getattr(message_chunk, "name", "tool") # getting tool_name from the ToolMessage
-                    if status_holder["box"] is None:
-                        status_holder["box"] = st.status(f"🔧 Using `{tool_name}` …", expanded=True)
+                    # Handle AI Text Updates
+                    if isinstance(message_chunk, AIMessage):
+                        yield message_chunk.content # Yield the content of AIMessage instead of Return for streaming
+                
+                # 2. Capture the run_id of the completed generation and store in session state
+                if cb.traced_runs:
+                    # Find the root run named "chat_turn" explicitly
+                    root_run = next(
+                        (run for run in cb.traced_runs if run.name == "chat_turn"), 
+                        None
+                    )
+                    if root_run:
+                        st.session_state.last_run_id = root_run.id
                     else:
-                        status_holder["box"].update(label=f"🔧 Using `{tool_name}` …", state="running", expanded=True)
+                        # Fallback: If "chat_turn" not found, default to the first collected run
+                        st.session_state.last_run_id = cb.traced_runs[0].id
 
-                # Stream if message_chunk is AIMessage
-                if isinstance(message_chunk, AIMessage):
-                    yield message_chunk.content # Yield the content of AIMessage instead of Return for streaming
+        # Write stream to UI and capture final text
+        ai_message = st.write_stream(ai_only_stream())
 
-        ai_message = st.write_stream(ai_only_stream()) # to stream the messages from the python to UI
-
-        # update status_holder if tool was used
+        # Finalize tool status if it was used
         if status_holder["box"] is not None:
             status_holder["box"].update(label="✅ Tool finished", state="complete", expanded=False)
 
     return ai_message
 
-
-# 4. Handle Input (Either User Text or Approval Buttons)
+# 5. Input Handling (User Text or Approval Buttons)
 if pending_interrupt_value:
-    # --- HITL MODE ---
+    # HITL MODE (Waiting for user approval)
     st.info(f"⚠️ Action Required: **{pending_interrupt_value}**")
     
     col1, col2 = st.columns([1, 1])
@@ -208,40 +269,41 @@ if pending_interrupt_value:
         if st.button("❌ Deny"): decision = "no"
 
     if decision:
-        # Resume the graph with the decision using Command
+        # Add decision to history for UI consistency
         st.session_state["message_history"].append({"role": "user", "content": f"[Decision: {decision}]"})
         
+        # Resume the graph execution with the user's decision
         response_content = stream_graph_response(Command(resume=decision))
         
+        # Append assistant's follow-up response
         st.session_state["message_history"].append({"role": "assistant", "content": response_content})
         st.rerun()
-
 else:
-    # --- STANDARD CHAT MODE ---
+    # STANDARD CHAT MODE
     user_input = st.chat_input("Type here ...")
 
     if user_input:
+        # Append user message to local history and display
         st.session_state["message_history"].append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.text(user_input)
 
+        # Send message to backend and stream response
         response = stream_graph_response({"messages": [HumanMessage(content=user_input)]})
         
+        # Append assistant response to local history
         st.session_state["message_history"].append({"role": "assistant", "content": response})
         
-        # Check if we hit an interrupt immediately after streaming
-        snapshot = chatbot.get_state(CONFIG)
-        if snapshot.next and any(task.interrupts for task in snapshot.tasks):
-            st.rerun() # Rerun to show the approval buttons
+        st.rerun() # Reload UI to display approval buttons
 
-
-# 5. Thread Switching Logic
+# 6. Thread Switching Logic
 if selected_thread:
     st.session_state["thread_id"] = selected_thread
-    # Load messages
+    
+    # Reload full conversation history from backend
     messages = load_conversation(selected_thread)
 
-    # Format messages for UI
+    # Convert LangChain messages to UI-friendly dict format
     temp_messages = []
     for msg in messages:
         role = "user" if isinstance(msg, HumanMessage) else "assistant"

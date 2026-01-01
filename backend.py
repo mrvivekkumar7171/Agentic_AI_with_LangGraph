@@ -13,48 +13,79 @@ from langgraph.graph import StateGraph, START
 import requests, sqlite3, os, tempfile, json
 from langgraph.types import interrupt
 from langchain_core.tools import tool
-from langsmith import traceable
+from langsmith import traceable, Client
 from dotenv import load_dotenv
 
-# =========================== LLMs and Keys ===========================
+# =========================== Initialize LLMs and Load environment variables ===========================
 load_dotenv()
 WEATHER_KEY = os.getenv("WEATHERSTACK_KEY")
 ALPHA_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+client = Client()
 
 
-# =========================== PDF retriever store (per thread) ===========================
+# =========================== PDF retriever store (per thread) ==========================================
 STORAGE_DIR = "storage"
 
+# Ensure the main storage directory exists
 if not os.path.exists(STORAGE_DIR):
     os.makedirs(STORAGE_DIR)
 
-def _get_thread_storage_path(thread_id: str):
-    """Create and return the path for a specific thread's storage."""
+def _get_thread_storage_path(thread_id: str) -> str:
+    """
+    Constructs and verifies the directory path for a specific thread's storage.
+
+    Args:
+        thread_id (str): The unique identifier for the conversation thread.
+
+    Returns:
+        str: The file system path to the thread's storage directory.
+    """
     path = os.path.join(STORAGE_DIR, str(thread_id))
     if not os.path.exists(path):
         os.makedirs(path)
     return path
 
 def _load_thread_metadata(thread_id: str) -> dict:
-    """Load metadata (list of files) from disk for a thread."""
+    """
+    Loads the metadata JSON file containing information about uploaded files for a thread.
+
+    Args:
+        thread_id (str): The unique identifier for the conversation thread.
+
+    Returns:
+        dict: A dictionary containing file metadata (e.g., filenames, page counts). 
+              Returns {"files": {}} if no metadata exists.
+    """
     path = os.path.join(_get_thread_storage_path(thread_id), "metadata.json")
     if os.path.exists(path):
         with open(path, "r") as f:
             return json.load(f)
     return {"files": {}}
 
-def _save_thread_metadata(thread_id: str, metadata: dict):
-    """Save metadata to disk."""
+def _save_thread_metadata(thread_id: str, metadata: dict) -> None:
+    """
+    Saves the metadata dictionary to a JSON file for a specific thread.
+
+    Args:
+        thread_id (str): The unique identifier for the conversation thread.
+        metadata (dict): The dictionary containing file information to save.
+    """
     path = os.path.join(_get_thread_storage_path(thread_id), "metadata.json")
     with open(path, "w") as f:
         json.dump(metadata, f, indent=2)
 
 def _get_retriever(thread_id: str):
     """
-    Load the FAISS index from disk for the given thread.
-    Returns None if no index exists.
+    Loads the FAISS vector index for a specific thread and returns it as a retriever.
+
+    Args:
+        thread_id (str): The unique identifier for the conversation thread.
+
+    Returns:
+        VectorStoreRetriever | None: A LangChain retriever object if the index exists, 
+                                     otherwise None.
     """
     if not thread_id:
         return None
@@ -62,17 +93,19 @@ def _get_retriever(thread_id: str):
     thread_path = _get_thread_storage_path(thread_id)
     index_path = os.path.join(thread_path, "index")
     
-    # Check if index file exists (FAISS saves as index.faiss)
+    # Check if the FAISS index file actually exists
     if not os.path.exists(os.path.join(index_path, "index.faiss")):
         return None
 
     try:
-        # allow_dangerous_deserialization is required for local pickle loading
+        # Load the local FAISS index.
+        # allow_dangerous_deserialization=True is needed because FAISS uses pickle.
         vector_store = FAISS.load_local(
             index_path, 
             embeddings, 
             allow_dangerous_deserialization=True
         )
+        # Return a retriever configured to find the top 4 similar chunks
         return vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
     except Exception as e:
         print(f"Error loading vector store: {e}")
@@ -80,23 +113,34 @@ def _get_retriever(thread_id: str):
 
 def ingest_pdf(file_bytes: bytes, thread_id: str, filename: str) -> dict:
     """
-    Process a PDF, add it to the thread's persistent FAISS index, and update metadata.
+    Processes a raw PDF file: saves it temporarily, extracts text, creates embeddings,
+    updates the FAISS index, and saves metadata.
+
+    Args:
+        file_bytes (bytes): The raw binary content of the PDF file.
+        thread_id (str): The unique identifier for the conversation thread.
+        filename (str): The original name of the uploaded file.
+
+    Returns:
+        dict: A summary of the ingestion process, including chunk counts or error messages.
+              Example: {"filename": "doc.pdf", "documents": 5, "chunks": 20}
     """
     if not file_bytes:
         raise ValueError("No bytes received for ingestion.")
     
     thread_path = _get_thread_storage_path(thread_id)
     
-    # 1. Save temp file to process
+    # 1. Save the bytes to a temporary file so PyPDFLoader can read it
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
         temp_file.write(file_bytes)
         temp_path = temp_file.name
 
     try:
-        # 2. Extract Text
+        # 2. Load and Extract Text
         loader = PyPDFLoader(temp_path)
         docs = loader.load()
         
+        # Split text into manageable chunks for the LLM context window
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200, separators=["\n\n", "\n", " ", ""]
         )
@@ -109,10 +153,11 @@ def ingest_pdf(file_bytes: bytes, thread_id: str, filename: str) -> dict:
                 "chunks": 0
             }
 
-        # 3. Load existing index or create new one
+        # 3. Create or Update FAISS Index
         index_path = os.path.join(thread_path, "index")
         
         if os.path.exists(os.path.join(index_path, "index.faiss")):
+            # Load existing index and add new documents
             vector_store = FAISS.load_local(
                 index_path, 
                 embeddings, 
@@ -120,12 +165,13 @@ def ingest_pdf(file_bytes: bytes, thread_id: str, filename: str) -> dict:
             )
             vector_store.add_documents(chunks)
         else:
+            # Create a brand new index
             vector_store = FAISS.from_documents(chunks, embeddings)
 
-        # 4. Save index back to disk
+        # 4. Save the updated index to disk
         vector_store.save_local(index_path)
 
-        # 5. Update Metadata
+        # 5. Update Metadata tracking
         metadata = _load_thread_metadata(thread_id)
         metadata["files"][filename] = {
             "chunks": len(chunks),
@@ -143,14 +189,22 @@ def ingest_pdf(file_bytes: bytes, thread_id: str, filename: str) -> dict:
         return {"error": str(e), "filename": filename, "chunks": 0}
         
     finally:
-        # The FAISS store keeps copies of the text, so the temp file is safe to remove.
+        # Clean up the temporary file
         try:
             os.remove(temp_path)
         except OSError:
             pass
 
 def get_thread_file_names(thread_id: str) -> List[str]:
-    """Helper to get list of filenames for system prompt."""
+    """
+    Retrieves a list of filenames currently indexed for a specific thread.
+
+    Args:
+        thread_id (str): The unique identifier for the conversation thread.
+
+    Returns:
+        List[str]: A list of filenames (e.g., ['report.pdf', 'notes.pdf']).
+    """
     if not thread_id:
         return []
     meta = _load_thread_metadata(thread_id)
@@ -164,7 +218,15 @@ search_tool = DuckDuckGoSearchRun(region="us-en")
 def calculator(first_num: float, second_num: float, operation: str) -> dict:
     """
     Perform a basic arithmetic operation on two numbers.
-    Supported operations: add, sub, mul, div
+    Supported operations: add, sub, mul, div.
+
+    Args:
+        first_num (float): The first number.
+        second_num (float): The second number.
+        operation (str): The operation to perform ('add', 'sub', 'mul', 'div').
+
+    Returns:
+        dict: A dictionary containing input arguments and the result, or an error message.
     """
     try:
         if operation == "add":
@@ -187,8 +249,13 @@ def calculator(first_num: float, second_num: float, operation: str) -> dict:
 @tool
 def get_stock_price(symbol: str) -> dict:
     """
-    Fetch latest stock price for a given symbol (e.g. 'AAPL', 'TSLA') 
-    using Alpha Vantage with API key in the URL.
+    Fetch the latest stock price for a given symbol using Alpha Vantage.
+
+    Args:
+        symbol (str): The stock ticker symbol (e.g., 'AAPL', 'MSFT').
+
+    Returns:
+        dict: The JSON response from the Alpha Vantage API containing stock data.
     """
     # For API key : https://www.alphavantage.co/support/#api-key
     url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={ALPHA_KEY}"
@@ -198,16 +265,22 @@ def get_stock_price(symbol: str) -> dict:
 @tool
 def purchase_stock(symbol: str, quantity: int) -> dict:
     """
-    Simulate purchasing a given quantity of a stock symbol.
+    Simulate purchasing a specific quantity of a stock.
+    
+    IMPORTANT: This tool implements a Human-in-the-Loop (HITL) workflow.
+    It pauses execution to request user confirmation before proceeding.
 
-    HUMAN-IN-THE-LOOP:
-    Before confirming the purchase, this tool will interrupt
-    and wait for a human decision ("yes" / anything else).
+    Args:
+        symbol (str): The stock ticker symbol.
+        quantity (int): The number of shares to buy.
+
+    Returns:
+        dict: A status message indicating success or cancellation after user input.
     """
-    # This pauses the graph and returns control to the caller
-    # The string passed to interrupt() will be available in the frontend state
+    # Trigger an interrupt in the LangGraph workflow and The value passed here is displayed to the user in the frontend.
     decision = interrupt(f"Approve buying {quantity} shares of {symbol}?")
 
+    # Based on the value returned from the frontend (via Command(resume=...))
     if isinstance(decision, str) and decision.lower() == "yes":
         return {
             "status": "success",
@@ -225,9 +298,15 @@ def purchase_stock(symbol: str, quantity: int) -> dict:
         }
 
 @tool
-def get_weather_data(city: str) -> str:
+def get_weather_data(city: str) -> dict:
     """
-    This function fetches the current weather data for a given city
+    Fetches the current weather data for a specified city using WeatherStack.
+
+    Args:
+        city (str): The name of the city to look up.
+
+    Returns:
+        dict: The JSON response containing weather details (temperature, description, etc.).
     """
     url = f'http://api.weatherstack.com/current?access_key={WEATHER_KEY}&query={city}'
     response = requests.get(url)
@@ -236,11 +315,18 @@ def get_weather_data(city: str) -> str:
 @tool
 def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
     """
-    Retrieve relevant information from the uploaded PDF for this chat thread.
-    Always include the thread_id when calling this tool.
-    """
+    Retrieves context from uploaded PDF documents relevant to the user's query.
 
+    Args:
+        query (str): The semantic search query.
+        thread_id (str, optional): The ID of the current thread to scope the search.
+
+    Returns:
+        dict: Contains the original query, a list of context strings, and source filenames.
+    """
     t_id = str(thread_id) if thread_id else None
+    
+    # Get the specific retriever for this thread
     retriever = _get_retriever(t_id)
     if retriever is None:
         return {
@@ -248,8 +334,10 @@ def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
             "query": query,
         }
 
+    # Perform the retrieval
     result = retriever.invoke(query)
-    # Extract clean text and unique sources
+    
+    # Extract clean text and unique sources from results
     context = []
     sources = set()
     
@@ -265,38 +353,52 @@ def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
         "sources": list(sources)
     }
 
-# Update tools list to include purchase_stock
+# Bind tools to the LLM so it knows their schemas
 tools = [search_tool, get_stock_price, purchase_stock, calculator, get_weather_data, rag_tool]
 llm_with_tools = llm.bind_tools(tools)
+
+# Create a generic ToolNode that executes the tools when called by the graph
 tool_node = ToolNode(tools)
 
 
 # =========================== State ===========================
 class ChatState(TypedDict):
     """
-    The ChatState is state that is being transfered between each nodes in the Graph.
+    Represents the state of the conversation graph.
+    
+    Attributes:
+        messages (list[BaseMessage]): A list of messages (System, Human, AI, Tool) 
+                                      that acts as the conversation history.
     """
     messages: Annotated[list[BaseMessage], add_messages]
 
 
 # =========================== Nodes ===========================
 @traceable(tags=["chat"])
-def chat_node(state: ChatState, config=None):
+def chat_node(state: ChatState, config=None) -> dict:
     """
-    LLM node that may answer or request a tool call based on user's input.
-    """
+    The main chatbot node. It analyzes the conversation state and decides 
+    whether to generate a text response or call a tool.
 
+    Args:
+        state (ChatState): The current state of the conversation.
+        config (dict, optional): Configuration dictionary containing 'thread_id'.
+
+    Returns:
+        dict: A dictionary containing the new message to append to the state.
+    """
     thread_id = None
     if config and isinstance(config, dict):
         thread_id = config.get("configurable", {}).get("thread_id")
 
-    # Dynamic System Prompt: Injects list of available files
+    # 1. Fetch available files to inform the LLM about RAG capabilities
     uploaded_files = get_thread_file_names(str(thread_id)) if thread_id else []
 
     files_context = "No PDF documents uploaded yet."
     if uploaded_files:
         files_context = f"Available documents for RAG: {', '.join(uploaded_files)}"
     
+    # 2. Construct the System Message with dynamic context
     system_message = SystemMessage(
         content=(
             f"""
@@ -307,21 +409,23 @@ def chat_node(state: ChatState, config=None):
         )
     )
 
+    # 3. Prepend system message to history and invoke LLM
     messages = [system_message, *state["messages"]]
     response = llm_with_tools.invoke(messages, config=config)
-    return {"messages": [response]} # updating the response to the ChatState's messages
+    return {"messages": [response]}
 
 
 # =========================== Checkpointer ===========================
 # for production or multi-instance setups. Requires connection details like host, port, database name, user, and password.
 # postgres_saver = PostgresSaver.from_conn_string("postgresql://user:password@localhost:5432/mydatabase")
 
-conn = sqlite3.connect(database="chatbot.db", check_same_thread=False) # check_same_thread is set to False to allow multiple threads to use the same connection
+# check_same_thread=False is required for Streamlit's multi-threaded environment to allow multiple threads to use the same connection
+conn = sqlite3.connect(database="chatbot.db", check_same_thread=False)
 checkpointer = SqliteSaver(conn=conn)
 
 
 # =========================== Graph ===========================
-# Create the ChatState instance
+# Define the Graph structure
 graph = StateGraph(ChatState)
 
 # Nodes
@@ -331,23 +435,35 @@ graph.add_node("tools", tool_node)
 # Edges
 graph.add_edge(START, "chat_node")
 graph.add_conditional_edges("chat_node", tools_condition) # tools_condition decides whether to call a tool or END.
-graph.add_edge('tools', 'chat_node')
+graph.add_edge('tools', 'chat_node') # Return to chat after tool execution
 
-# Compile Graph
-chatbot = graph.compile(checkpointer=checkpointer) # pass the checkpointer object at the compilation to add it at each steps.
+# Compile the Graph (passes the checkpointer object at the compilation to add it at each steps)
+chatbot = graph.compile(checkpointer=checkpointer)
 
 
 # =========================== Helper ===========================
-def retrieve_all_threads():
+def retrieve_all_threads() -> list:
     """
-    return the list of all unique thread_ids from the database
+    Retrieves a list of all unique conversation thread IDs from the database.
+
+    Returns:
+        list: A list of thread_id strings.
     """
     all_threads = set()
-    for checkpoint in checkpointer.list(None): # all checkpoints of all threads ids from the database
+    # Iterate through all checkpoints to find unique thread IDs from the database
+    for checkpoint in checkpointer.list(None):
         all_threads.add(checkpoint.config['configurable']['thread_id'])
 
     return list(all_threads)
 
 def get_thread_metadata(thread_id: str) -> dict:
-    """Expose metadata loader to frontend."""
+    """
+    Wrapper to expose the metadata loader to the frontend.
+
+    Args:
+        thread_id (str): The unique identifier for the conversation thread.
+
+    Returns:
+        dict: Metadata about the thread's files.
+    """
     return _load_thread_metadata(str(thread_id))

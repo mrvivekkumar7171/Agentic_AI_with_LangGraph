@@ -17,7 +17,40 @@ Other distinctions:
 - `Execution`: LangChain executes in a sequential fashion, while LangGraph performs Event-Driven execution.
 - `Fault Tolerance`: LangGraph offers handling for small-level faults (retry logic) and system-level faults (recovery using checkpointers) by starting from the intermediate state `workflow.get_state_history(config)` in case of crash instead of starting from the initial.
 - `Human-in-the-loop`: LangChain cannot handle Human-in-the-loop for long-running processes effectively. But, LangGrahp makes the Agentic AI to wait for human response before execution. It work the same way as fault tolerance by knowingly done.
-- `Nested Workflows`: In LangGraph, each node can itself be a complete graph. These subgraphs help create multi-agent systems and increase reusability.
+- `Nested Workflows`: In LangGraph, each node of a graph can itself be a complete graph and these nodes are called `Subgraph`. These subgraphs help in `modularity`, `failure isolation` (error in one subgraph don't effect the whole graph), `state seperation` (allow to define seperate state for each subgraph), create `multi-agent systems` and increase `reusability` and `observability` by executed as a node. Ways to add subgraph:
+```bash
+# Add a graph as node has common state
+
+subgraph_builder = StateGraph(SubState)
+subgraph_builder.add_node('translate_text', translate_text)
+subgraph_builder.add_edge(START, 'translate_text')
+subgraph_builder.add_edge('translate_text', END)
+subgraph = subgraph_builder.compile()
+
+parent_builder = StateGraph(ParentState)
+parent_builder.add_node("answer", generate_answer)
+parent_builder.add_node("translate", translate_answer) # translate_answer function contains subgraph.invoke()
+parent_builder.add_edge(START, 'answer')
+parent_builder.add_edge('answer', 'translate')
+parent_builder.add_edge('translate', END)
+```
+
+```bash
+# Invoke a graph from a node has seperate state
+
+subgraph_builder = StateGraph(ParentState)
+subgraph_builder.add_node('translate_text', translate_text)
+subgraph_builder.add_edge(START, 'translate_text')
+subgraph_builder.add_edge('translate_text', END)
+subgraph = subgraph_builder.compile()
+
+parent_builder = StateGraph(ParentState)
+parent_builder.add_node("answer", generate_answer)
+parent_builder.add_node("translate", subgraph) # "translate" node of parent_builder run the subgraph
+parent_builder.add_edge(START, 'answer')
+parent_builder.add_edge('answer', 'translate')
+parent_builder.add_edge('translate', END)
+```
 - `Observability`: This is partial and difficult in LangChain but easier in LangGraph.
 
  *Note: LangGraph is built on top of LangChain (it doesn't replace it). LangGraph handles workflow orchestration, while LangChain provides the building blocks (LLMs, PromptTemplates, Retrievers, Document Loaders, Tools, etc.) for each step.*
@@ -242,8 +275,8 @@ client = MultiServerMCPClient(
 **Persistence** in LangGraph refers to the ability to save and restore the state of a workflow over time. It not just store the initial and  final state but also the intermediate state. It is implemented with the help of **checkpointers**. **Threads** in Persistence helps by assigning Thread ID to each instance of the workflow to retrive that. **Time Travel** allow us to `re-play` or execute the workflow from `any intermediate checkpoint` when there is `no error or failure`. It helps in debugging. We first retrive the Checkpoint ID for a particular node by specifing node name then run workflow from the node. **Updating State** allow us to `re-play` the workflow `with new state` thus the output state will also change.
 
 #### **Types of Memory**: 
- **Short term memory** : Store and maintains the intermediate state (active session's context-recent user messages, tool calls, and immediate decisions across sessions) into the database and retriving the past conversation to resume the conversation.
- **Long term memory** : Remembers user preferences, high-level goals, or past interactions to adjust future behavior.
+ **Short term memory** : Store and maintains the intermediate state (active session's context-recent user messages, tool calls, and immediate decisions across sessions) into the database per thread ID and retriving the past conversation to resume the conversation.
+ **Long term memory** : Remembers user preferences, high-level goals, or past interactions to adjust future behavior. like `Episodic Memory` what happend, `Semantic Memory` what is true, `Procedural Memory` how to do things.
  **State Tracking** : Monitors progress: what's completed, what's pending (e.g., "JD posted", "Offer sent").
 
 ### 6. **Other Common Chatbot Features**
