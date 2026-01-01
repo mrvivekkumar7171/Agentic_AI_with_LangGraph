@@ -4,3 +4,4 @@ chatbot.db-shm
 chatbot.db-wal
 __pycache__/
 *.pyc
+storage/

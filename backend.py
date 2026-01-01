@@ -1,21 +1,20 @@
 from __future__ import annotations
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_community.document_loaders import PyPDFLoader
-from typing import TypedDict, Annotated, Any, Dict, Optional
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langgraph.prebuilt import ToolNode, tools_condition
+from typing import TypedDict, Annotated, Optional, List
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.graph import StateGraph, START
 from langchain_community.vectorstores import FAISS
 from langgraph.graph.message import add_messages
-import requests, sqlite3, os, tempfile
+from langgraph.graph import StateGraph, START
+import requests, sqlite3, os, tempfile, json
+from langgraph.types import interrupt
 from langchain_core.tools import tool
 from langsmith import traceable
 from dotenv import load_dotenv
-
-
 
 # =========================== LLMs and Keys ===========================
 load_dotenv()
@@ -25,38 +24,79 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
 
-
 # =========================== PDF retriever store (per thread) ===========================
-_THREAD_RETRIEVERS: Dict[str, Any] = {}
-_THREAD_METADATA: Dict[str, dict] = {}
+STORAGE_DIR = "storage"
 
+if not os.path.exists(STORAGE_DIR):
+    os.makedirs(STORAGE_DIR)
 
-def _get_retriever(thread_id: Optional[str]):
+def _get_thread_storage_path(thread_id: str):
+    """Create and return the path for a specific thread's storage."""
+    path = os.path.join(STORAGE_DIR, str(thread_id))
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return path
+
+def _load_thread_metadata(thread_id: str) -> dict:
+    """Load metadata (list of files) from disk for a thread."""
+    path = os.path.join(_get_thread_storage_path(thread_id), "metadata.json")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return json.load(f)
+    return {"files": {}}
+
+def _save_thread_metadata(thread_id: str, metadata: dict):
+    """Save metadata to disk."""
+    path = os.path.join(_get_thread_storage_path(thread_id), "metadata.json")
+    with open(path, "w") as f:
+        json.dump(metadata, f, indent=2)
+
+def _get_retriever(thread_id: str):
     """
-    Fetch the retriever for a thread if available.
+    Load the FAISS index from disk for the given thread.
+    Returns None if no index exists.
     """
-    if thread_id and thread_id in _THREAD_RETRIEVERS:
-        return _THREAD_RETRIEVERS[thread_id]
-    return None
+    if not thread_id:
+        return None
+        
+    thread_path = _get_thread_storage_path(thread_id)
+    index_path = os.path.join(thread_path, "index")
+    
+    # Check if index file exists (FAISS saves as index.faiss)
+    if not os.path.exists(os.path.join(index_path, "index.faiss")):
+        return None
 
+    try:
+        # allow_dangerous_deserialization is required for local pickle loading
+        vector_store = FAISS.load_local(
+            index_path, 
+            embeddings, 
+            allow_dangerous_deserialization=True
+        )
+        return vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+    except Exception as e:
+        print(f"Error loading vector store: {e}")
+        return None
 
-def ingest_pdf(file_bytes: bytes, thread_id: str, filename: Optional[str] = None) -> dict:
+def ingest_pdf(file_bytes: bytes, thread_id: str, filename: str) -> dict:
     """
-    Build a FAISS retriever for the uploaded PDF and store it for the thread.
-
-    Returns a summary dict that can be surfaced in the UI.
+    Process a PDF, add it to the thread's persistent FAISS index, and update metadata.
     """
     if not file_bytes:
         raise ValueError("No bytes received for ingestion.")
-
+    
+    thread_path = _get_thread_storage_path(thread_id)
+    
+    # 1. Save temp file to process
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
         temp_file.write(file_bytes)
         temp_path = temp_file.name
 
     try:
+        # 2. Extract Text
         loader = PyPDFLoader(temp_path)
         docs = loader.load()
-
+        
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200, separators=["\n\n", "\n", " ", ""]
         )
@@ -64,29 +104,44 @@ def ingest_pdf(file_bytes: bytes, thread_id: str, filename: Optional[str] = None
 
         if not chunks:
             return {
-                "error": "No text found in PDF. It might be a scanned image.",
-                "filename": filename or os.path.basename(temp_path),
-                "documents": len(docs),
-                "chunks": 0,
+                "error": "No text found in PDF. It might be a scanned image or empty.",
+                "filename": filename,
+                "chunks": 0
             }
 
-        vector_store = FAISS.from_documents(chunks, embeddings)
-        retriever = vector_store.as_retriever(
-            search_type="similarity", search_kwargs={"k": 4}
-        )
+        # 3. Load existing index or create new one
+        index_path = os.path.join(thread_path, "index")
+        
+        if os.path.exists(os.path.join(index_path, "index.faiss")):
+            vector_store = FAISS.load_local(
+                index_path, 
+                embeddings, 
+                allow_dangerous_deserialization=True
+            )
+            vector_store.add_documents(chunks)
+        else:
+            vector_store = FAISS.from_documents(chunks, embeddings)
 
-        _THREAD_RETRIEVERS[str(thread_id)] = retriever
-        _THREAD_METADATA[str(thread_id)] = {
-            "filename": filename or os.path.basename(temp_path),
-            "documents": len(docs),
+        # 4. Save index back to disk
+        vector_store.save_local(index_path)
+
+        # 5. Update Metadata
+        metadata = _load_thread_metadata(thread_id)
+        metadata["files"][filename] = {
             "chunks": len(chunks),
+            "pages": len(docs)
         }
+        _save_thread_metadata(thread_id, metadata)
 
         return {
-            "filename": filename or os.path.basename(temp_path),
+            "filename": filename,
             "documents": len(docs),
-            "chunks": len(chunks),
+            "chunks": len(chunks)
         }
+
+    except Exception as e:
+        return {"error": str(e), "filename": filename, "chunks": 0}
+        
     finally:
         # The FAISS store keeps copies of the text, so the temp file is safe to remove.
         try:
@@ -94,6 +149,12 @@ def ingest_pdf(file_bytes: bytes, thread_id: str, filename: Optional[str] = None
         except OSError:
             pass
 
+def get_thread_file_names(thread_id: str) -> List[str]:
+    """Helper to get list of filenames for system prompt."""
+    if not thread_id:
+        return []
+    meta = _load_thread_metadata(thread_id)
+    return list(meta.get("files", {}).keys())
 
 
 # =========================== Tools ===========================
@@ -135,6 +196,35 @@ def get_stock_price(symbol: str) -> dict:
     return r.json()
 
 @tool
+def purchase_stock(symbol: str, quantity: int) -> dict:
+    """
+    Simulate purchasing a given quantity of a stock symbol.
+
+    HUMAN-IN-THE-LOOP:
+    Before confirming the purchase, this tool will interrupt
+    and wait for a human decision ("yes" / anything else).
+    """
+    # This pauses the graph and returns control to the caller
+    # The string passed to interrupt() will be available in the frontend state
+    decision = interrupt(f"Approve buying {quantity} shares of {symbol}?")
+
+    if isinstance(decision, str) and decision.lower() == "yes":
+        return {
+            "status": "success",
+            "message": f"Purchase order placed for {quantity} shares of {symbol}.",
+            "symbol": symbol,
+            "quantity": quantity,
+        }
+    
+    else:
+        return {
+            "status": "cancelled",
+            "message": f"Purchase of {quantity} shares of {symbol} was declined by human.",
+            "symbol": symbol,
+            "quantity": quantity,
+        }
+
+@tool
 def get_weather_data(city: str) -> str:
     """
     This function fetches the current weather data for a given city
@@ -149,7 +239,9 @@ def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
     Retrieve relevant information from the uploaded PDF for this chat thread.
     Always include the thread_id when calling this tool.
     """
-    retriever = _get_retriever(thread_id)
+
+    t_id = str(thread_id) if thread_id else None
+    retriever = _get_retriever(t_id)
     if retriever is None:
         return {
             "error": "No document indexed for this chat. Upload a PDF first.",
@@ -157,17 +249,24 @@ def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
         }
 
     result = retriever.invoke(query)
-    context = [doc.page_content for doc in result]
-    metadata = [doc.metadata for doc in result]
+    # Extract clean text and unique sources
+    context = []
+    sources = set()
+    
+    for doc in result:
+        context.append(doc.page_content)
+        # Assuming PyPDFLoader puts source path in metadata, we strip to filename
+        if "source" in doc.metadata:
+            sources.add(os.path.basename(doc.metadata["source"]))
 
     return {
         "query": query,
         "context": context,
-        "metadata": metadata,
-        "source_file": _THREAD_METADATA.get(str(thread_id), {}).get("filename"),
+        "sources": list(sources)
     }
 
-tools = [search_tool, get_stock_price, calculator, get_weather_data, rag_tool]
+# Update tools list to include purchase_stock
+tools = [search_tool, get_stock_price, purchase_stock, calculator, get_weather_data, rag_tool]
 llm_with_tools = llm.bind_tools(tools)
 tool_node = ToolNode(tools)
 
@@ -175,14 +274,7 @@ tool_node = ToolNode(tools)
 # =========================== State ===========================
 class ChatState(TypedDict):
     """
-    The ChatState is state that is being transfered between each nodes in the Graph where
-    BaseMessage is the base class of all messages incluing HumanMessage, AIMessage, SystemMessage etc.
-    add_messages is reducer function to add new BaseMessage, without removing the past one.
-    
-    :var messages: Description
-    :vartype messages: Any
-    :var response: Description
-    :vartype response: AIMessage
+    The ChatState is state that is being transfered between each nodes in the Graph.
     """
     messages: Annotated[list[BaseMessage], add_messages]
 
@@ -198,13 +290,20 @@ def chat_node(state: ChatState, config=None):
     if config and isinstance(config, dict):
         thread_id = config.get("configurable", {}).get("thread_id")
 
+    # Dynamic System Prompt: Injects list of available files
+    uploaded_files = get_thread_file_names(str(thread_id)) if thread_id else []
+
+    files_context = "No PDF documents uploaded yet."
+    if uploaded_files:
+        files_context = f"Available documents for RAG: {', '.join(uploaded_files)}"
+    
     system_message = SystemMessage(
         content=(
-            "You are a helpful assistant. For questions about the uploaded PDF, call "
-            "the `rag_tool` and include the thread_id "
-            f"`{thread_id}`. You can also use the web search, stock price, and "
-            "calculator tools when helpful. If no document is available, ask the user "
-            "to upload a PDF."
+            f"""
+            You are a helpful assistant. {files_context} \nFor questions about the uploaded document(s), call the `rag_tool` and include the thread_id
+            `{thread_id}`. You can also use the `search_tool`, `get_stock_price`, `purchase_stock`, `get_weather_data`
+            and `calculator` tools when helpful. If no document is available, ask the user to upload a PDF.
+            """
         )
     )
 
@@ -213,14 +312,12 @@ def chat_node(state: ChatState, config=None):
     return {"messages": [response]} # updating the response to the ChatState's messages
 
 
-
 # =========================== Checkpointer ===========================
 # for production or multi-instance setups. Requires connection details like host, port, database name, user, and password.
 # postgres_saver = PostgresSaver.from_conn_string("postgresql://user:password@localhost:5432/mydatabase")
 
 conn = sqlite3.connect(database="chatbot.db", check_same_thread=False) # check_same_thread is set to False to allow multiple threads to use the same connection
 checkpointer = SqliteSaver(conn=conn)
-
 
 
 # =========================== Graph ===========================
@@ -240,40 +337,17 @@ graph.add_edge('tools', 'chat_node')
 chatbot = graph.compile(checkpointer=checkpointer) # pass the checkpointer object at the compilation to add it at each steps.
 
 
-
 # =========================== Helper ===========================
 def retrieve_all_threads():
     """
     return the list of all unique thread_ids from the database
     """
-
     all_threads = set()
     for checkpoint in checkpointer.list(None): # all checkpoints of all threads ids from the database
         all_threads.add(checkpoint.config['configurable']['thread_id'])
 
     return list(all_threads)
 
-def thread_has_document(thread_id: str) -> bool:
-    """
-    Docstring for thread_has_document
-    
-    :param thread_id: Description
-    :type thread_id: str
-    :return: Description
-    :rtype: bool
-    """
-
-    return str(thread_id) in _THREAD_RETRIEVERS
-
-
-def thread_document_metadata(thread_id: str) -> dict:
-    """
-    Docstring for thread_document_metadata
-    
-    :param thread_id: Description
-    :type thread_id: str
-    :return: Description
-    :rtype: dict
-    """
-
-    return _THREAD_METADATA.get(str(thread_id), {})
+def get_thread_metadata(thread_id: str) -> dict:
+    """Expose metadata loader to frontend."""
+    return _load_thread_metadata(str(thread_id))

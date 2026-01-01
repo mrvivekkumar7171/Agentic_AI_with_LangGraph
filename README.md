@@ -124,7 +124,7 @@ graph.add_edge('optimize_tweet', 'evaluate_tweet')
 
 To controll the Autonomy :
 - **Permission Scope** - Limit what tools or actions the agent can perform independently. (Can screen candidates, but needs approval before rejecting anyone.)
-- **Human-in-the-Loop (HITL)** - Insert checkpoints where human approval is required before continuing high-risk actions. Also Alerts when uncertainty/conflict arises. (Can I post this JD)
+- **Human-in-the-Loop (HITL)** - Insert checkpoints where human `approval`, `supervise`, `correct` and `guide` is required before continuing `high-risk actions` thus add accountability, accuracy, ethical aligment, better user experience to human. HITL pause the execution and save the state to take Human input and resume the execution when receive the user's feedback. Also Alerts when uncertainty/conflict arises. Common HITL pattters are  `action approval` pattern, `output review / edit` Pattern, `ambiguity clarification` pattern, `escalation` pattern.
 - **Override Controls** - Allow users to stop, pause, or change the agent's behaviour at any time. (pause screening command to halt resume processing.)
 - **Guardrails / Policies** - Define hard rules or ethical boundaries the agent must follow and Blocks unsafe or non-compliant behavior. (Never schedule interviews on weekends)
 
@@ -321,7 +321,7 @@ client = MultiServerMCPClient(
 * **Safety constraints or Data privacy**: Obeys guardrails like do-not-do rules or data privacy laws.
 * **Explainability**: Can explain why it took a particular action.
 * **User approval gating**: Seeks permission before executing sensitive tasks.
-* **Escalation to Human Agents / Human-in-the-Loop / Hybrid Control**: Seamlessly hands off to a human when the task is too ambiguous, risky, or sensitive, Includes full context transfer to the human counterpart.
+* **Human-in-the-Loop**: Seamlessly hands off to a human when the task is too ambiguous, risky, or sensitive, Includes full context transfer to the human counterpart.
 * **Approval-based Actions**: Certain actions (e.g., sending payment, deleting data) require explicit human approval.
 * **Role-based Access Control (RBAC)**: User-specific permissions for executing sensitive or destructive tasks, Fine-grained control over tool access (e.g., only admins can call `delete_user`).
 * **Audit Logging**: Logs all actions taken by the agent: what, why, when, who initiated, Helps with compliance (e.g., GDPR, HIPAA, SOC2).
