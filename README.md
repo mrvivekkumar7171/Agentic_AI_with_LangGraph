@@ -279,6 +279,9 @@ client = MultiServerMCPClient(
  **Long term memory** : Remembers user preferences, high-level goals, or past interactions to adjust future behavior. like `Episodic Memory` what happend, `Semantic Memory` what is true, `Procedural Memory` how to do things.
  **State Tracking** : Monitors progress: what's completed, what's pending (e.g., "JD posted", "Offer sent").
 
+**Context Window** : Maximum number of tokens can be processed by LLM while generating response.
+**Triming** : all messages are more than set number of tokens then we trim the messages such we only keep n number of recent messages such that their token count is less than the set number of tokens before sending to LLM assuming that user query will be related to recent messages. **Sumarization** is used to sumarize the past left over conversation history and then send to the LLM instead of not considering at all. Then we delete the past messages as we store the sumarization instead in state. 
+
 ### 6. **Other Common Chatbot Features**
 * **Streaming**               Model starts sending tokens (words) as soon as they're generated, instead of waiting for the entire response to be ready before returning it. It has faster response time - low drop-off rates, mimics human like conversation (Builds trust, feels alive and keeps the user engaged), important for Multi-modal Uls, better UX for long output such as code, you can cancel midway saving tokens and you can interleave UI updates, e.g., show "thinking...", show tool results.
 * **Quick Replies / Buttons** UI shortcuts to guide conversation.

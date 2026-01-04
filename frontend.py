@@ -1,4 +1,7 @@
-# https://smith.langchain.com/              To run : streamlit run .\frontend.py
+# To run using : docker-compose up -d
+# To check the status : docker ps
+# To run : streamlit run .\frontend.py
+# https://smith.langchain.com/              
 from backend import chatbot, retrieve_all_threads, ingest_pdf, get_thread_metadata, client
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.tracers.context import collect_runs
@@ -34,6 +37,7 @@ def reset_chat() -> None:
     """
     thread_id = generate_thread_id()
     st.session_state["thread_id"] = thread_id
+    st.query_params["thread_id"] = str(thread_id)
     add_thread(thread_id)
     st.session_state["message_history"] = []
 
@@ -61,7 +65,30 @@ if "message_history" not in st.session_state:
 
 # Initialize 'thread_id' for the current active conversation
 if "thread_id" not in st.session_state:
-    st.session_state["thread_id"] = generate_thread_id()
+    # 1. Check if thread_id exists in URL query params (Handles Page Refresh)
+    query_params = st.query_params
+    url_thread_id = query_params.get("thread_id")
+
+    if url_thread_id:
+        st.session_state["thread_id"] = url_thread_id
+        # Reload history immediately if resuming from URL
+        msgs = load_conversation(url_thread_id)
+        
+        # Convert to UI format immediately so the user sees history on refresh
+        temp_history = []
+        for msg in msgs:
+            if isinstance(msg, HumanMessage):
+                temp_history.append({"role": "user", "content": msg.content})
+            elif isinstance(msg, AIMessage) and msg.content:
+                # Filter out empty AI messages (tool calls) and ensure we don't show System/Tool messages
+                temp_history.append({"role": "assistant", "content": msg.content})
+        
+        st.session_state["message_history"] = temp_history
+    else:
+        # 2. If no URL param, generate new ID
+        new_id = generate_thread_id()
+        st.session_state["thread_id"] = new_id
+        st.query_params["thread_id"] = str(new_id)
 
 # Initialize 'chat_threads' by fetching existing threads from DB
 if "chat_threads" not in st.session_state:
@@ -231,7 +258,8 @@ def stream_graph_response(input_payload):
 
                     # Handle AI Text Updates
                     if isinstance(message_chunk, AIMessage):
-                        yield message_chunk.content # Yield the content of AIMessage instead of Return for streaming
+                        if message_chunk.content:
+                            yield message_chunk.content # Yield the content of AIMessage instead of Return for streaming
                 
                 # 2. Capture the run_id of the completed generation and store in session state
                 if cb.traced_runs:
@@ -299,6 +327,7 @@ else:
 # 6. Thread Switching Logic
 if selected_thread:
     st.session_state["thread_id"] = selected_thread
+    st.query_params["thread_id"] = str(selected_thread)
     
     # Reload full conversation history from backend
     messages = load_conversation(selected_thread)
@@ -306,8 +335,12 @@ if selected_thread:
     # Convert LangChain messages to UI-friendly dict format
     temp_messages = []
     for msg in messages:
-        role = "user" if isinstance(msg, HumanMessage) else "assistant"
-        temp_messages.append({"role": role, "content": msg.content})
+        if isinstance(msg, HumanMessage):
+            temp_messages.append({"role": "user", "content": msg.content})
+        elif isinstance(msg, AIMessage) and msg.content:
+             # Only show AI messages that have actual content (hides internal tool calls)
+            temp_messages.append({"role": "assistant", "content": msg.content})
+
     st.session_state["message_history"] = temp_messages
 
     # Trigger reload to fetch new metadata for this thread

@@ -1,25 +1,31 @@
 from __future__ import annotations
+from langchain_core.messages import BaseMessage, SystemMessage, RemoveMessage, HumanMessage
+from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langgraph.prebuilt import ToolNode, tools_condition
 from typing import TypedDict, Annotated, Optional, List
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from langchain_community.vectorstores import FAISS
+from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from langgraph.graph import StateGraph, START
-import requests, sqlite3, os, tempfile, json
+import requests, os, tempfile, json, psycopg
+from langgraph.prebuilt import ToolNode, tools_condition
+from psycopg_pool import ConnectionPool
+from langsmith import traceable, Client
 from langgraph.types import interrupt
 from langchain_core.tools import tool
-from langsmith import traceable, Client
 from dotenv import load_dotenv
 
 # =========================== Initialize LLMs and Load environment variables ===========================
 load_dotenv()
+SHORT_TERM_MEMORY_LIMIT = int(os.getenv("SHORT_TERM_MEMORY_LIMIT", 10))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", 4000))
 WEATHER_KEY = os.getenv("WEATHERSTACK_KEY")
 ALPHA_KEY = os.getenv("ALPHA_VANTAGE_KEY")
+DB_URI = os.getenv("DB_URI")
+
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 client = Client()
@@ -369,8 +375,10 @@ class ChatState(TypedDict):
     Attributes:
         messages (list[BaseMessage]): A list of messages (System, Human, AI, Tool) 
                                       that acts as the conversation history.
+        summary (str): A string that gets overwritten by the summarizer.
     """
     messages: Annotated[list[BaseMessage], add_messages]
+    summary: str
 
 
 # =========================== Nodes ===========================
@@ -398,31 +406,89 @@ def chat_node(state: ChatState, config=None) -> dict:
     if uploaded_files:
         files_context = f"Available documents for RAG: {', '.join(uploaded_files)}"
     
+    # Inject the Summary into the System Message
+    summary = state.get("summary", "")
+    summary_context = f"Summary of past conversation: {summary}" if summary else "No previous summary."
+
     # 2. Construct the System Message with dynamic context
     system_message = SystemMessage(
         content=(
             f"""
-            You are a helpful assistant. {files_context} \nFor questions about the uploaded document(s), call the `rag_tool` and include the thread_id
-            `{thread_id}`. You can also use the `search_tool`, `get_stock_price`, `purchase_stock`, `get_weather_data`
-            and `calculator` tools when helpful. If no document is available, ask the user to upload a PDF.
-            """
+You are a helpful assistant.
+            
+{summary_context}
+            
+{files_context}
+
+For questions about the uploaded document(s), call the `rag_tool` and include the thread_id `{thread_id}`. If no document is available, ask the user to upload a PDF.
+"""
         )
     )
 
+    # Trim messages to manage token usage
+    trimmed_messages = trim_messages(
+        state["messages"][-SHORT_TERM_MEMORY_LIMIT:],
+        strategy="last",
+        token_counter=count_tokens_approximately,
+        max_tokens=MAX_TOKENS
+    )
+
     # 3. Prepend system message to history and invoke LLM
-    messages = [system_message, *state["messages"]]
+    messages = [system_message, *trimmed_messages]
     response = llm_with_tools.invoke(messages, config=config)
     return {"messages": [response]}
 
+@traceable(tags=["summarize_conversation", str(SHORT_TERM_MEMORY_LIMIT)])
+def summarize_conversation(state: ChatState) -> dict:
+    """
+    Summarizes the conversation history and removes old messages from the database.
+    
+    Deletes the oldest messages if the history exceeds a certain length.
+    This helps keep the DATABASE size manageable.
+    
+    :param state: Description
+    :type state: ChatState
+    :return: Description
+    :rtype: dict
+    """
+    existing_summary = state.get("summary", "")
+    
+    # Construct the prompt for the summarization model
+    if existing_summary:
+        prompt = (
+            f"""
+This is summary of the conversation to date: 
 
-# =========================== Checkpointer ===========================
-# for production or multi-instance setups. Requires connection details like host, port, database name, user, and password.
-# postgres_saver = PostgresSaver.from_conn_string("postgresql://user:password@localhost:5432/mydatabase")
+{existing_summary}
 
-# check_same_thread=False is required for Streamlit's multi-threaded environment to allow multiple threads to use the same connection
-conn = sqlite3.connect(database="chatbot.db", check_same_thread=False)
-checkpointer = SqliteSaver(conn=conn)
+Extend the summary by taking into account the new messages above.
+"""
+        )
+    else:
+        prompt = "Create a summary of the conversation above:"
+    
+    # We send the messages history except the last N messages + the instruction to summarize
+    messages_for_summary = state["messages"][:-SHORT_TERM_MEMORY_LIMIT] + [SystemMessage(content=prompt)]
+    
+    # Only invoke if there is actually something to summarize other than the prompt
+    if len(messages_for_summary) > 1:
+        response = llm.invoke(messages_for_summary)
+        return {"summary": response.content}
+    
+    return {}
 
+@traceable(tags=["should_summarize", str(SHORT_TERM_MEMORY_LIMIT)])
+def should_summarize(state: ChatState) -> str:
+    """
+    Determines the next step: Tool? Summarize? or End?
+    """
+    messages = state["messages"]
+    
+    # If the conversation is getting long (e.g., > N messages), route to summarizer
+    if len(messages) > SHORT_TERM_MEMORY_LIMIT:
+        return "summarize_node"
+    else:
+        return "chat_node"
 
 # =========================== Graph ===========================
 # Define the Graph structure
@@ -431,11 +497,36 @@ graph = StateGraph(ChatState)
 # Nodes
 graph.add_node("chat_node", chat_node)
 graph.add_node("tools", tool_node)
+graph.add_node("summarize_conversation", summarize_conversation)
 
 # Edges
-graph.add_edge(START, "chat_node")
+graph.add_conditional_edges(START, should_summarize,
+    {
+        "chat_node": "chat_node",
+        "summarize_node": "summarize_conversation"
+    }
+)
+graph.add_edge('summarize_conversation', 'chat_node')
 graph.add_conditional_edges("chat_node", tools_condition) # tools_condition decides whether to call a tool or END.
 graph.add_edge('tools', 'chat_node') # Return to chat after tool execution
+
+
+# =========================== Checkpointer ===========================
+
+try:
+    """
+    Run migrations with a dedicated auto-commit connection as PostgresSaver.setup() creates indexes concurrently, which CANNOT 
+    run in a transaction block.
+    """
+    with psycopg.connect(DB_URI, autocommit=True) as setup_conn:
+        PostgresSaver(setup_conn).setup()
+        print("Database checkpointer setup complete.")
+except Exception as e:
+    print(f"Warning during DB setup (indexes might already exist): {e}")
+
+# Initialize the persistent connection pool. We do NOT use 'with ConnectionPool(...) as pool:' here because the pool needs to
+# remain open for the lifetime of the application/module.
+checkpointer = PostgresSaver(ConnectionPool(conninfo=DB_URI, max_size=20))
 
 # Compile the Graph (passes the checkpointer object at the compilation to add it at each steps)
 chatbot = graph.compile(checkpointer=checkpointer)
