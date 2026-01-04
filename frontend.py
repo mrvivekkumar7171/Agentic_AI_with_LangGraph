@@ -243,11 +243,15 @@ def stream_graph_response(input_payload):
             """
             # 1. Wrap execution in collect_runs to capture the trace ID
             with collect_runs() as cb:
-                for message_chunk, _ in chatbot.stream(
+                for message_chunk, metadata in chatbot.stream(
                     input_payload,
                     config=CONFIG,
                     stream_mode="messages",
                 ):
+                    # Filter out the internal node output : LangGraph streams ALL LLM calls. We only want the 'chat_node' output.
+                    if metadata.get("langgraph_node") == "summarize_conversation":
+                        continue
+
                     # Handle Tool Execution Updates
                     if isinstance(message_chunk, ToolMessage):
                         tool_name = getattr(message_chunk, "name", "tool")
