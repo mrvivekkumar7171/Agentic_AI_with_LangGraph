@@ -111,13 +111,19 @@ files_info = current_metadata.get("files", {})
 threads = st.session_state["chat_threads"][::-1]
 selected_thread = None
 
+# We define the user_id here so the backend knows which memory namespace to access. In a real app, this would come from a login system.
+CURRENT_USER_ID = "user_123"
+
 # Base configuration for LangGraph execution
 CONFIG = {
     "run_name": "chat_turn",
-    "configurable": {"thread_id": thread_key}, 
+    "configurable": {
+        "thread_id": thread_key,
+        "user_id": CURRENT_USER_ID
+    }, 
     "metadata": {
         "thread_id": thread_key,
-        "user_id": "user_123",
+        "user_id": CURRENT_USER_ID,
         "model": "gpt-4o-mini",
         "temperature": 0.7,
         "parser": "StrOutputParser"
@@ -125,10 +131,9 @@ CONFIG = {
     "tags": ["llm app", "report_generation", "summarization"]
 }
 
-
+st.set_page_config(layout="wide", page_title="TheSoftMax Chat", page_icon="💬")
+st.title("TheSoftMax")
 # ============================ Sidebar ============================
-st.sidebar.title("TheSoftMax")
-
 # Button to start a fresh conversation
 if st.sidebar.button("New Chat", use_container_width=True):
     reset_chat()
@@ -190,7 +195,30 @@ for message in st.session_state["message_history"]:
 
     # For each role in message_history display the message in the chat window
     with st.chat_message(message["role"]):
-        st.text(message["content"])
+        st.markdown(message["content"]) 
+# st.code("pip install pandas") # for code block
+# st.latex("X^2 + Y^2 + 10 = 0") # for latex block
+# import pandas as pd
+# data = {
+#     'Column A': [1, 2, 3],
+#     'Column B': ['A', 'B', 'C']
+# }
+# df = pd.DataFrame()
+# st.dataframe(df) # for dataframe display
+# st.metric("Revenue", "Rs. 3L", "-3%") # for metric display
+# st.json(data) # for json display
+# st.image("https://example.com/image.png") # for image display
+# st.video("https://example.com/video.mp4") # for video display
+# st.error("This is an error message") # for error message display
+# st.success("This is a success message") # for success message display
+# st.info("This is an info message") # for info message display
+# st.warning("This is a warning message") # for warning message display
+# bar = st.progress(50) # for progress bar display
+# import time
+# for i in range(1, 100):
+#     time.sleep(0.1)
+#     bar.progress(i + 1)
+# gender = st.selectbox('Select an option', ['Option 1', 'Option 2', 'Option 3']) # for selectbox display
 
 # 2. Feedback Scoring
 if st.session_state.get("last_run_id"):
@@ -249,7 +277,7 @@ def stream_graph_response(input_payload):
                     stream_mode="messages",
                 ):
                     # Filter out the internal node output : LangGraph streams ALL LLM calls. We only want the 'chat_node' output.
-                    if metadata.get("langgraph_node") == "summarize_conversation":
+                    if (metadata.get("langgraph_node") == "summarize_conversation") or (metadata.get("langgraph_node") == "remember_node"):
                         continue
 
                     # Handle Tool Execution Updates
@@ -296,7 +324,9 @@ if pending_interrupt_value:
     decision = None
     
     with col1:
-        if st.button("✅ Approve"): decision = "yes"
+        if st.button("✅ Approve"): 
+            decision = "yes"
+            st.balloons()
     with col2:
         if st.button("❌ Deny"): decision = "no"
 
@@ -312,7 +342,7 @@ if pending_interrupt_value:
         st.rerun()
 else:
     # STANDARD CHAT MODE
-    user_input = st.chat_input("Type here ...")
+    user_input = st.chat_input("Type here ...") # st.text_input or st.number_input or st.date_input
 
     if user_input:
         # Append user message to local history and display

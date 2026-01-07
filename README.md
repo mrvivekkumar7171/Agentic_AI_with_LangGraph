@@ -279,6 +279,8 @@ client = MultiServerMCPClient(
  **Long term memory** : Remembers user preferences, high-level goals, or past interactions to adjust future behavior. like `Episodic Memory` what happend, `Semantic Memory` what is true, `Procedural Memory` how to do things.
  **State Tracking** : Monitors progress: what's completed, what's pending (e.g., "JD posted", "Offer sent").
 
+**namespace** : a mechanism for organizing and isolating long-term memory data (like user preferences, facts, or conversation summaries). Namespaces act like folders or unique identifiers in a database, ensuring that information related to one user or application doesn't get mixed up with another. 
+
 **Context Window** : Maximum number of tokens can be processed by LLM while generating response.
 **Triming** : all messages are more than set number of tokens then we trim the messages such we only keep n number of recent messages such that their token count is less than the set number of tokens before sending to LLM assuming that user query will be related to recent messages. **Sumarization** is used to sumarize the past left over conversation history and then send to the LLM instead of not considering at all. Then we delete the past messages as we store the sumarization instead in state. 
 
